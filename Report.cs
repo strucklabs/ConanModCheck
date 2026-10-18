@@ -4,6 +4,9 @@ sealed class FolderStat(string folder)
 {
     public string Folder { get; } = folder;
     public int Objects { get; set; }
+
+    /// <summary>Mod-Controller (die Steuerung, die der Server für jede aktive Mod anlegt); zählen nicht zu den Objekten.</summary>
+    public int Controllers { get; set; }
     public int Pieces { get; set; }
     public int Props { get; set; }
     public int Buffs { get; set; }
@@ -33,26 +36,33 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
 
         if (folders.Count == 0) { w.WriteLine("Im Spielstand gibt es keine Objekte aus Mods."); w.WriteLine(); return; }
 
-        w.WriteLine("Je Mod-Ordner: platzierte Objekte (inkl. Mod-Steuerung), Bauteile, Objekte mit Mod-Daten, aktive Effekte.");
-        w.WriteLine("Items lassen sich nur zuordnen, wenn die Mod-Datei mit angegeben wird.");
+        w.WriteLine("Je Mod-Ordner: Mod-Controller, platzierte Objekte, Bauteile, Objekte mit Mod-Daten, aktive Effekte.");
+        w.WriteLine("Hinweis: Items lassen sich nur zuordnen, wenn die Mod-Datei mit angegeben wird.");
         w.WriteLine();
         int width = Math.Max(10, folders.Max(f => f.Folder.Length));
-        w.WriteLine($"  {"Ordner".PadRight(width)}  Objekte  Bauteile  Mod-Daten  Effekte  geprüfte Mod");
+        w.WriteLine($"  {"Ordner".PadRight(width)}  Controller  Objekte  Bauteile  Mod-Daten  Effekte  geprüfte Mod");
         foreach (var e in folders)
         {
             var mod = mods.FirstOrDefault(m => m.HasFile && m.ModFolders.Contains(e.Folder))?.Name ?? "";
-            w.WriteLine($"  {e.Folder.PadRight(width)}  {e.Objects,7}  {e.Pieces,8}  {e.Props,9}  {e.Buffs,7}  {mod}");
+            w.WriteLine($"  {e.Folder.PadRight(width)}  {ControllerMark(e.Controllers),10}  {e.Objects,7}  {e.Pieces,8}  {e.Props,9}  {e.Buffs,7}  {mod}");
         }
         w.WriteLine();
     }
 
-    /// <summary>Je Mod-Ordner im Spielstand: Objekte, Bauteile, Objekte mit Mod-Daten, aktive Effekte.</summary>
+    /// <summary>"✓", "✓ 2" bei mehreren Controllern, leer ohne.</summary>
+    public static string ControllerMark(int count) => count switch { 0 => "", 1 => "✓", _ => $"✓ {count}" };
+
+    /// <summary>Je Mod-Ordner im Spielstand: Controller, Objekte, Bauteile, Objekte mit Mod-Daten, aktive Effekte.</summary>
     public static List<FolderStat> FolderStats(SaveGame save)
     {
         var folders = new SortedDictionary<string, FolderStat>(StringComparer.OrdinalIgnoreCase);
         FolderStat Get(string f) => folders.TryGetValue(f, out var e) ? e : folders[f] = new FolderStat(f);
         foreach (var o in save.Objects.Values)
-            if (ModPaths.FolderOf(o.Class) is { } f) Get(f).Objects++;
+            if (ModPaths.FolderOf(o.Class) is { } f)
+            {
+                if (ModPaths.IsController(o.Class)) Get(f).Controllers++;
+                else Get(f).Objects++;
+            }
         foreach (var p in save.Pieces.Values.SelectMany(l => l))
             if (ModPaths.FolderOf(p.Class) is { } f) Get(f).Pieces++;
         foreach (var (f, objs) in save.PropertyRefs)
@@ -106,7 +116,7 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
         Sub("Inhalt der Mod-Datei");
         if (!mod.HasFile)
         {
-            w.WriteLine("  Keine Mod-Datei angegeben, Items dieser Mod lassen sich deshalb nicht erkennen.");
+            w.WriteLine("  Hinweis: Keine Mod-Datei angegeben, Items dieser Mod lassen sich deshalb nicht erkennen.");
             w.WriteLine();
             return;
         }
@@ -118,13 +128,13 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
             if (t.MissingGameRows.Count > 0)
             {
                 var inSave = save.Items.Count(i => t.MissingGameRows.Contains(i.TemplateId));
-                w.WriteLine($"    Veraltet: Dem aktuellen Spiel gegenüber fehlen {t.MissingGameRows.Count} Einträge.");
+                w.WriteLine($"    ! Veraltet: Dem aktuellen Spiel gegenüber fehlen {t.MissingGameRows.Count} Einträge.");
                 warnings.Add($"Die Mod ersetzt {Path.GetFileName(t.Path)} durch eine veraltete Kopie. Solange sie aktiv ist, fehlen {t.MissingGameRows.Count} Einträge des aktuellen Spiels"
                     + (inSave > 0 ? $"; {inSave} davon liegen im Spielstand und können verschwinden." : " (keiner davon liegt im Spielstand)."));
             }
         }
         if (game == null)
-            w.WriteLine("  Ohne Spieldateien lässt sich nicht trennen, welche IDs neu sind und welche die Mod nur verändert.");
+            w.WriteLine("  Hinweis: Ohne Spieldateien lässt sich nicht trennen, welche IDs neu sind und welche die Mod nur verändert.");
         else
         {
             w.WriteLine($"  Neue IDs durch die Mod: {mod.NewIds.Count}");
@@ -272,7 +282,7 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
 
         Heading("Items ohne bekannte Herkunft");
         w.WriteLine($"{unknown.Count} Items im Spielstand gehören weder zum Spiel noch zu einer der geprüften Mods.");
-        w.WriteLine("Sie stammen aus anderen aktiven Mods oder aus Mods, die schon entfernt wurden.");
+        w.WriteLine("Hinweis: Sie stammen aus anderen aktiven Mods oder aus Mods, die schon entfernt wurden.");
         w.WriteLine("Wer die übrigen Mod-Dateien mit angibt, sieht hier nur noch die Reste entfernter Mods.");
         w.WriteLine();
         foreach (var g in unknown.GroupBy(i => i.TemplateId).OrderBy(g => g.Key).Take(40))

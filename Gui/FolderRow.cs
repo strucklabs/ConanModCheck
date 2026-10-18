@@ -11,6 +11,8 @@ sealed class FolderRow(string folder, ModPackage? mod) : INotifyPropertyChanged
     public ModPackage? Mod { get; } = mod;
     public string ModName => Mod?.Name ?? "";
     public int Objects { get; init; }
+    public int Controllers { get; init; }
+    public string ControllerMark => Report.ControllerMark(Controllers);
     public int Pieces { get; init; }
     public int Props { get; init; }
     public int Buffs { get; init; }

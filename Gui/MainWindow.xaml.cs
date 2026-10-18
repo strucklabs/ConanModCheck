@@ -21,6 +21,7 @@ public partial class MainWindow : Window
     string? _tempDir;
     string? _analyzedDb;
     Cleanup? _plan;
+    string _reportText = "";
     bool _busy;
 
     public MainWindow()
@@ -29,6 +30,10 @@ public partial class MainWindow : Window
         ModList.ItemsSource = _modFiles;
         FolderGrid.ItemsSource = _rows;
         Map.SelectionChanged += Map_SelectionChanged;
+        Map.BackgroundMoved += bg => { StoreAlignment(bg); SelectAlignIsland(bg.Key); ShowAlignValues(); };
+        foreach (var info in MapImages.All)
+            AlignIslandBox.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = info.Title, Tag = info.Key });
+        AlignIslandBox.SelectedIndex = 0;
 
         if (_settings.DbPath != null && File.Exists(_settings.DbPath)) SetDb(_settings.DbPath);
         foreach (var f in _settings.ModFiles.Where(f => File.Exists(f) || Directory.Exists(f))) _modFiles.Add(f);
@@ -172,6 +177,7 @@ public partial class MainWindow : Window
             RefreshResults();
             RefreshOwnership();
             RefreshMap(keepView: sameDb);
+            await LoadMapImages();
             AskAboutOodle();
             UpdateOodleInfo();
             SaveSettings();
@@ -202,6 +208,7 @@ public partial class MainWindow : Window
             var row = new FolderRow(f, mod)
             {
                 Objects = s?.Objects ?? 0,
+                Controllers = s?.Controllers ?? 0,
                 Pieces = s?.Pieces ?? 0,
                 Props = s?.Props ?? 0,
                 Buffs = s?.Buffs ?? 0,
@@ -228,6 +235,7 @@ public partial class MainWindow : Window
             foreach (var other in _rows.Where(r => r != row && r.Mod == row.Mod)) other.SetQuietly(row.Remove);
         RefreshResults();
         Map.RefreshColors();
+        if (CurrentItemFilter() == ItemFilter.SelectedMods) RefreshOwnership();
     }
 
     void IncludeContents_Changed(object sender, RoutedEventArgs e) => RefreshResults();
@@ -251,7 +259,8 @@ public partial class MainWindow : Window
 
         var report = new StringWriter();
         new Report(_save, selected, _game, report, _mods).Write();
-        ReportBox.Text = report.ToString();
+        _reportText = report.ToString();
+        ReportView.Document = ReportDocument.Build(_reportText);
 
         var preview = new StringWriter();
         bool orphans = IncludeOrphansBox.IsChecked == true;
@@ -268,9 +277,9 @@ public partial class MainWindow : Window
             _plan = Cleanup.Plan(_save, selected, _game, IncludeContentsBox.IsChecked == true, orphans);
             _plan.Preview(preview, ItemNames.Build(_game, _mods));
             if (!_plan.IsEmpty)
-                preview.WriteLine("Das ist nur eine Vorschau. Erst „Jetzt bereinigen …“ ändert den Spielstand.");
+                preview.WriteLine("Hinweis: Das ist nur eine Vorschau. Erst „Jetzt bereinigen …“ ändert den Spielstand.");
         }
-        PreviewBox.Text = preview.ToString();
+        PreviewView.Document = ReportDocument.Build(preview.ToString());
         ApplyButton.IsEnabled = _plan is { IsEmpty: false } && !_busy;
     }
 
@@ -376,6 +385,181 @@ public partial class MainWindow : Window
     }
 
     void MapFit_Click(object sender, RoutedEventArgs e) => Map.FitAll();
+
+    GameData? _mapImagesFor;
+
+    /// <summary>Liest die Kartenbilder einmal je Spielinstallation und legt sie schemenhaft unter die Karte.</summary>
+    async Task LoadMapImages()
+    {
+        if (_game == null || _mapImagesFor == _game) return;
+        _mapImagesFor = _game;
+        var game = _game;
+        var loaded = await Task.Run(() =>
+        {
+            var list = new List<(MapImageInfo Info, System.Windows.Media.Imaging.BitmapSource Image)>();
+            foreach (var info in MapImages.All)
+            {
+                try
+                {
+                    var package = game.TryRead(info.TexturePath);
+                    var img = package == null ? null : ConanModCheck.IoStore.DxtTexture.DecodeGray(package, downscale: 2);
+                    if (img != null) list.Add((info, Faint(img)));
+                }
+                catch (Exception) { /* fehlendes oder unbekanntes Kartenbild: dann eben ohne */ }
+            }
+            return list;
+        });
+        Map.SetBackgrounds(loaded.Select(l =>
+        {
+            var a = Alignment(l.Info);
+            return new MapBackground(l.Info.Key, l.Image, RectFor(l.Info, a), a.Angle);
+        }));
+        ShowAlignValues();
+        MapImageStatus.Text = loaded.Count == MapImages.All.Length ? "" : "Nicht alle Kartenbilder wurden im Spiel gefunden.";
+        MapImageStatus.Visibility = MapImageStatus.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>Graustufen so aufhellen, dass die Karte nur leicht dunkler als der Hintergrund erscheint.</summary>
+    static System.Windows.Media.Imaging.BitmapSource Faint(ConanModCheck.IoStore.DxtTexture.GrayImage img)
+    {
+        var bg = MapView.BackgroundColor;
+        int baseGray = (bg.R * 299 + bg.G * 587 + bg.B * 114) / 1000;
+        var px = new byte[img.Pixels.Length];
+        for (int i = 0; i < px.Length; i++)
+            px[i] = (byte)Math.Clamp(baseGray - (255 - img.Pixels[i]) * 0.22, 0, 255);
+        var bmp = System.Windows.Media.Imaging.BitmapSource.Create(img.Width, img.Height, 96, 96,
+            System.Windows.Media.PixelFormats.Gray8, null, px, img.Width);
+        bmp.Freeze();
+        return bmp;
+    }
+
+    Rect DefaultRect(MapImageInfo info) => new(info.CenterX - info.Size / 2, info.CenterY - info.Size / 2, info.Size, info.Size);
+
+    /// <summary>Korrektur eines Kartenbilds: Versatz der Mitte (Welteinheiten), Maßstab (1 = 100 %), Drehung (Grad).</summary>
+    sealed record MapAlignment(double Dx, double Dy, double Scale, double Angle);
+
+    MapAlignment Alignment(MapImageInfo info) =>
+        _settings.MapAlign.TryGetValue(info.Key, out var a) && a.Length == 4 ? new MapAlignment(a[0], a[1], a[2], a[3]) : new MapAlignment(0, 0, 1, 0);
+
+    static Rect RectFor(MapImageInfo info, MapAlignment a)
+    {
+        double size = info.Size * a.Scale;
+        return new Rect(info.CenterX + a.Dx - size / 2, info.CenterY + a.Dy - size / 2, size, size);
+    }
+
+    /// <summary>Lage aus der Karte in Korrekturwerte umrechnen und speichern.</summary>
+    void StoreAlignment(MapBackground bg)
+    {
+        var info = MapImages.All.First(m => m.Key == bg.Key);
+        var w = bg.World;
+        _settings.MapAlign[bg.Key] = [w.X + w.Width / 2 - info.CenterX, w.Y + w.Height / 2 - info.CenterY, w.Width / info.Size, bg.Angle];
+        _settings.Save();
+    }
+
+    MapImageInfo SelectedAlignIsland() =>
+        MapImages.All.First(m => m.Key == ((AlignIslandBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as string ?? "exiled"));
+
+    void ShowAlignValues()
+    {
+        var a = Alignment(SelectedAlignIsland());
+        var de = System.Globalization.CultureInfo.GetCultureInfo("de-DE");
+        AlignX.Text = a.Dx.ToString("0", de);
+        AlignY.Text = a.Dy.ToString("0", de);
+        AlignScale.Text = (a.Scale * 100).ToString("0.00", de);
+        AlignAngle.Text = a.Angle.ToString("0.0", de);
+    }
+
+    void AlignIsland_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (IsLoaded) ShowAlignValues();
+    }
+
+    void SelectAlignIsland(string key)
+    {
+        foreach (System.Windows.Controls.ComboBoxItem item in AlignIslandBox.Items)
+            if (item.Tag as string == key) { AlignIslandBox.SelectedItem = item; break; }
+    }
+
+    // Zahlenfelder beim Anklicken komplett markieren, damit man direkt den neuen Wert tippen kann
+    void AlignValue_Focus(object sender, System.Windows.Input.KeyboardFocusChangedEventArgs e) =>
+        (sender as System.Windows.Controls.TextBox)?.SelectAll();
+
+    void AlignValue_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (sender is System.Windows.Controls.TextBox { IsKeyboardFocusWithin: false } box)
+        {
+            box.Focus();
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>Mausrad über Bericht und Vorschau scrollt, auch ohne vorher hineinzuklicken.</summary>
+    void DocumentView_MouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+    {
+        if (sender is not DependencyObject root) return;
+        var viewer = FindChild<System.Windows.Controls.ScrollViewer>(root);
+        if (viewer == null) return;
+        viewer.ScrollToVerticalOffset(viewer.VerticalOffset - e.Delta / 3.0);
+        e.Handled = true;
+    }
+
+    static T? FindChild<T>(DependencyObject parent) where T : DependencyObject
+    {
+        for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+            if (child is T t) return t;
+            if (FindChild<T>(child) is { } found) return found;
+        }
+        return null;
+    }
+
+    void AlignValue_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Enter) AlignValue_Commit(sender, e);
+    }
+
+    /// <summary>Eingetragene Werte übernehmen; ungültige Eingaben werden auf den letzten Stand zurückgesetzt.</summary>
+    void AlignValue_Commit(object sender, RoutedEventArgs e)
+    {
+        var de = System.Globalization.CultureInfo.GetCultureInfo("de-DE");
+        bool Parse(System.Windows.Controls.TextBox box, out double v) =>
+            double.TryParse(box.Text.Replace('.', ','), System.Globalization.NumberStyles.Float, de, out v);
+        var info = SelectedAlignIsland();
+        if (Parse(AlignX, out var dx) && Parse(AlignY, out var dy) && Parse(AlignScale, out var scale) && scale > 1 && Parse(AlignAngle, out var angle))
+        {
+            var a = new MapAlignment(dx, dy, scale / 100, angle);
+            _settings.MapAlign[info.Key] = [a.Dx, a.Dy, a.Scale, a.Angle];
+            _settings.Save();
+            Map.UpdateBackground(info.Key, RectFor(info, a), a.Angle);
+        }
+        ShowAlignValues();
+    }
+
+    void MapIsland_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string key }) return;
+        var info = MapImages.All.First(m => m.Key == key);
+        Map.FitRect(Map.GetBackground(key)?.World ?? DefaultRect(info));
+        SelectAlignIsland(key);
+    }
+
+    void AlignMap_Changed(object sender, RoutedEventArgs e)
+    {
+        bool on = AlignMapButton.IsChecked == true;
+        Map.AlignMode = on;
+        AlignHint.Visibility = ResetAlignButton.Visibility = AlignPanel.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        if (on) ShowAlignValues();
+        if (on && ShowMapImageBox.IsChecked != true) ShowMapImageBox.IsChecked = true;
+    }
+
+    void ResetAlign_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.MapAlign.Clear();
+        _settings.Save();
+        foreach (var info in MapImages.All) Map.UpdateBackground(info.Key, DefaultRect(info), 0);
+        ShowAlignValues();
+    }
     void MapZoom_Click(object sender, RoutedEventArgs e) => Map.ZoomToSelection();
 
     void MapFilter_Changed(object sender, RoutedEventArgs e)
@@ -385,6 +569,7 @@ public partial class MainWindow : Window
         Map.ShowPlaceables = ShowPlaceablesBox.IsChecked == true;
         Map.ShowFigures = ShowFiguresBox.IsChecked == true;
         Map.ShowPlayers = ShowPlayersBox.IsChecked == true;
+        Map.ShowBackground = ShowMapImageBox.IsChecked == true;
         Map.InvalidateVisual();
     }
 
@@ -403,6 +588,7 @@ public partial class MainWindow : Window
         {
             var text = new StringBuilder();
             text.AppendLine($"Gebäude {b.Id}");
+            text.AppendLine($"Insel: {MapImages.IslandOf(b.Bounds.X).Title}");
             text.AppendLine($"Besitzer: {save.OwnerName(b.Owner)}");
             text.AppendLine($"{b.Pieces.Count:N0} Bauteile" + (b.ModPieces > 0 ? $", davon {b.ModPieces:N0} aus Mods" : ""));
             foreach (var g in b.Pieces.Select(p => ModPaths.FolderOf(p.Class)).Where(f => f != null).GroupBy(f => f).OrderByDescending(g => g.Count()))
@@ -437,6 +623,7 @@ public partial class MainWindow : Window
             };
             var text = new StringBuilder();
             text.AppendLine($"{name} (ID {o.Id})");
+            text.AppendLine($"Insel: {MapImages.IslandOf(o.X).Title}");
             if (m.Kind != MapObjectKind.Player) text.AppendLine($"Besitzer: {save.OwnerName(m.Owner)}");
             else if (save.CharacterGuild.TryGetValue(o.Id, out var g) && save.Guilds.TryGetValue(g, out var gn)) text.AppendLine($"Clan: {gn}");
             if (save.ItemsByOwner.TryGetValue(o.Id, out var items))
@@ -545,17 +732,26 @@ public partial class MainWindow : Window
     {
         if (_save == null) return;
         var filter = OwnershipSearchBox.Text;
-        var onlyMods = OnlyModsBox.IsChecked == true;
-        var nodes = Ownership.Build(_save, ItemNames.Build(_game, _mods), filter, ItemOrigin.Build(_game, _mods), onlyMods);
-        bool searching = !string.IsNullOrWhiteSpace(filter) || onlyMods;
+        var mode = CurrentItemFilter();
+        var nodes = Ownership.Build(_save, ItemNames.Build(_game, _mods), filter, ItemOrigin.Build(_game, _mods), mode, SelectedModNames());
+        bool searching = !string.IsNullOrWhiteSpace(filter) || mode != ItemFilter.All;
         OwnershipTree.ItemsSource = nodes.Select(n => new OwnTreeItem(n, searching)).ToList();
         if (searching && nodes.Count == 0)
-            StatusText.Text = onlyMods && string.IsNullOrWhiteSpace(filter) ? "Keine Items aus Mods gefunden." : "Keine passenden Items gefunden.";
+            StatusText.Text = "Keine passenden Items gefunden.";
     }
 
     void SearchOwnership_Click(object sender, RoutedEventArgs e) => RefreshOwnership();
 
-    void OnlyMods_Changed(object sender, RoutedEventArgs e) => RefreshOwnership();
+    void ItemFilter_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (IsLoaded) RefreshOwnership();
+    }
+
+    ItemFilter CurrentItemFilter() => (ItemFilter)Math.Max(0, ItemFilterBox.SelectedIndex);
+
+    /// <summary>Namen der Mods mit Datei, die in der Übersicht zum Entfernen angehakt sind.</summary>
+    HashSet<string> SelectedModNames() =>
+        _rows.Where(r => r.Remove && r.Mod is { HasFile: true }).Select(r => r.Mod!.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     void OwnershipSearch_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
@@ -592,22 +788,22 @@ public partial class MainWindow : Window
         var dlg = new SaveFileDialog { Title = "Besitz als Text speichern", Filter = "Textdatei (*.txt)|*.txt", FileName = "ConanModCheck-Besitz.txt" };
         if (dlg.ShowDialog(this) != true) return;
         using var w = new StreamWriter(dlg.FileName, false, new UTF8Encoding(true));
-        Ownership.WriteText(w, Ownership.Build(_save, ItemNames.Build(_game, _mods), OwnershipSearchBox.Text, ItemOrigin.Build(_game, _mods), OnlyModsBox.IsChecked == true));
+        Ownership.WriteText(w, Ownership.Build(_save, ItemNames.Build(_game, _mods), OwnershipSearchBox.Text, ItemOrigin.Build(_game, _mods), CurrentItemFilter(), SelectedModNames()));
     }
 
     // ---------- Bericht ----------
 
     void SaveReport_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrEmpty(ReportBox.Text)) return;
+        if (string.IsNullOrEmpty(_reportText)) return;
         var dlg = new SaveFileDialog { Title = "Bericht speichern", Filter = "Textdatei (*.txt)|*.txt", FileName = "ConanModCheck-Bericht.txt" };
         if (dlg.ShowDialog(this) == true)
-            File.WriteAllText(dlg.FileName, ReportBox.Text, new UTF8Encoding(true));
+            File.WriteAllText(dlg.FileName, _reportText, new UTF8Encoding(true));
     }
 
     void CopyReport_Click(object sender, RoutedEventArgs e)
     {
-        if (!string.IsNullOrEmpty(ReportBox.Text)) Clipboard.SetText(ReportBox.Text);
+        if (!string.IsNullOrEmpty(_reportText)) Clipboard.SetText(_reportText);
     }
 
     // ---------- Hilfen ----------

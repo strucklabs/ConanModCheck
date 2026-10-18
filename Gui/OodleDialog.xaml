@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Oodle-Bibliothek gefunden"
         Width="560" SizeToContent="Height" ResizeMode="NoResize"
-        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" Icon="Assets/ConanModCheck.ico">
     <StackPanel Margin="18">
         <TextBlock TextWrapping="Wrap" FontWeight="SemiBold" FontSize="13.5"
                    Text="Zum Entpacken der Mod- und Spieldateien braucht ConanModCheck die Oodle-Bibliothek. Sie wurde in einem anderen Spiel gefunden:" />

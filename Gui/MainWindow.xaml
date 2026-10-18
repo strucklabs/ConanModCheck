@@ -5,6 +5,7 @@
         Title="ConanModCheck – Mod-Reste im Spielstand finden und entfernen"
         Width="1180" Height="760" MinWidth="900" MinHeight="560"
         WindowStartupLocation="CenterScreen"
+        Icon="Assets/ConanModCheck.ico"
         AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver"
         Closing="Window_Closing">
     <Grid Margin="12">
@@ -20,11 +21,18 @@
 
         <!-- Linke Spalte: Auswahl -->
         <DockPanel Grid.Column="0">
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
+                <Image Source="{StaticResource Logo}" Width="40" Height="40" />
+                <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="ConanModCheck" FontSize="17" FontWeight="SemiBold" />
+                    <TextBlock Text="Mod-Reste im Spielstand finden und entfernen" Foreground="#666" />
+                </StackPanel>
+            </StackPanel>
             <GroupBox Header="1. Spielstand (game.db)" DockPanel.Dock="Top">
                 <StackPanel>
                     <TextBlock x:Name="DbPathText" Text="Noch keiner ausgewählt" TextWrapping="Wrap" />
                     <Button Content="Spielstand auswählen …" HorizontalAlignment="Left" Margin="0,8,0,0" Click="ChooseDb_Click" />
-                    <TextBlock Style="{StaticResource Hint}"
+                    <TextBlock Style="{StaticResource Notice}"
                                Text="Liegt beim Server unter ConanSandbox\Saved. Den Server vor dem Kopieren stoppen. Am besten mit einer Kopie arbeiten." />
                 </StackPanel>
             </GroupBox>
@@ -47,7 +55,8 @@
                     MinHeight="36" IsDefault="True" Click="Analyze_Click" />
 
             <Expander Header="Einstellungen" DockPanel.Dock="Top" Margin="0,12,0,0">
-                <StackPanel Margin="0,6,0,0">
+                <Border Margin="0,6,0,0" Padding="10" Background="#F5F5F3" BorderBrush="#DDDAD2" BorderThickness="1" CornerRadius="4">
+                <StackPanel>
                     <TextBlock Text="Conan Exiles-Ordner (leer = über Steam suchen)" />
                     <DockPanel Margin="0,2,0,8">
                         <Button DockPanel.Dock="Right" Content="…" Padding="8,2" Margin="4,0,0,0" Click="ChooseGame_Click" />
@@ -64,6 +73,7 @@
                     <TextBlock Style="{StaticResource Hint}"
                                Text="Mod- und Spieldateien sind mit Oodle gepackt. Die Bibliothek oo2core_*_win64.dll liegt vielen anderen Spielen bei." />
                 </StackPanel>
+                </Border>
             </Expander>
 
             <GroupBox Header="Verlauf" Margin="0,12,0,0">
@@ -89,6 +99,11 @@
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
                             <DataGridTextColumn Header="Mod-Ordner" Binding="{Binding Folder}" Width="*" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Mod-Controller" Binding="{Binding ControllerMark}" Width="95" IsReadOnly="True">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock"><Setter Property="HorizontalAlignment" Value="Center" /></Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
                             <DataGridTextColumn Header="Objekte" Binding="{Binding Objects}" Width="70" IsReadOnly="True" />
                             <DataGridTextColumn Header="Bauteile" Binding="{Binding Pieces}" Width="70" IsReadOnly="True" />
                             <DataGridTextColumn Header="Mod-Daten" Binding="{Binding Props}" Width="80" IsReadOnly="True" />
@@ -103,8 +118,13 @@
                 <DockPanel Margin="8">
                     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
                         <Button DockPanel.Dock="Right" Content="Als Text speichern …" Margin="6,0,0,0" Click="SaveOwnership_Click" />
-                        <CheckBox x:Name="OnlyModsBox" DockPanel.Dock="Right" Content="Nur Items aus Mods" Margin="12,0,0,0"
-                                  VerticalAlignment="Center" Checked="OnlyMods_Changed" Unchecked="OnlyMods_Changed" />
+                        <ComboBox x:Name="ItemFilterBox" DockPanel.Dock="Right" Margin="12,0,0,0" Width="190" VerticalContentAlignment="Center"
+                                  SelectedIndex="0" SelectionChanged="ItemFilter_Changed">
+                            <ComboBoxItem Content="Alle Items" />
+                            <ComboBoxItem Content="Items aus allen Mods" />
+                            <ComboBoxItem Content="Items aus geladenen Mods" />
+                            <ComboBoxItem Content="Items aus angehakten Mods" />
+                        </ComboBox>
                         <Button DockPanel.Dock="Right" Content="Suchen" Margin="6,0,0,0" Click="SearchOwnership_Click" />
                         <TextBlock DockPanel.Dock="Left" Text="Item suchen:" VerticalAlignment="Center" Margin="0,0,6,0" />
                         <TextBox x:Name="OwnershipSearchBox" VerticalContentAlignment="Center" KeyDown="OwnershipSearch_KeyDown"
@@ -144,10 +164,12 @@
                     </Border>
                     <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" Margin="10,0,0,0">
                         <StackPanel>
-                            <StackPanel Orientation="Horizontal">
-                                <Button Content="Ganze Karte" Click="MapFit_Click" />
-                                <Button Content="Heranzoomen" Margin="6,0,0,0" Click="MapZoom_Click" />
-                            </StackPanel>
+                            <WrapPanel>
+                                <Button Content="Ganze Karte" Margin="0,0,6,6" Click="MapFit_Click" />
+                                <Button Content="Heranzoomen" Margin="0,0,6,6" Click="MapZoom_Click" />
+                                <Button Content="Verbannte Lande" Margin="0,0,6,6" Tag="exiled" Click="MapIsland_Click" />
+                                <Button Content="Siptah" Margin="0,0,6,6" Tag="siptah" Click="MapIsland_Click" />
+                            </WrapPanel>
                             <TextBlock Style="{StaticResource Hint}" Text="Mausrad: zoomen · Ziehen: verschieben · Klick: Gebäude oder Objekt auswählen" />
 
                             <GroupBox Header="Auswahl" Margin="0,10,0,0">
@@ -167,6 +189,34 @@
                                     <CheckBox x:Name="ShowPlaceablesBox" Content="Platzierte Objekte" IsChecked="True" Checked="MapFilter_Changed" Unchecked="MapFilter_Changed" />
                                     <CheckBox x:Name="ShowFiguresBox" Content="Thralls und Tiere" IsChecked="True" Margin="0,4,0,0" Checked="MapFilter_Changed" Unchecked="MapFilter_Changed" />
                                     <CheckBox x:Name="ShowPlayersBox" Content="Spieler" IsChecked="True" Margin="0,4,0,0" Checked="MapFilter_Changed" Unchecked="MapFilter_Changed" />
+                                    <CheckBox x:Name="ShowMapImageBox" Content="Spielkarte im Hintergrund" IsChecked="True" Margin="0,4,0,0" Checked="MapFilter_Changed" Unchecked="MapFilter_Changed" />
+                                    <ToggleButton x:Name="AlignMapButton" Content="Karte ausrichten" HorizontalAlignment="Left" Margin="0,8,0,0" Padding="10,3"
+                                                  Checked="AlignMap_Changed" Unchecked="AlignMap_Changed" />
+                                    <TextBlock x:Name="AlignHint" Style="{StaticResource Hint}" Visibility="Collapsed"
+                                               Text="Kartenbild mit der Maus verschieben, Mausrad: Größe, Strg + Mausrad: Drehung. Oder Werte unten eintragen. Alles wird gespeichert." />
+                                    <Grid x:Name="AlignPanel" Visibility="Collapsed" Margin="0,8,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Text="Insel" VerticalAlignment="Center" Margin="0,0,8,4" />
+                                        <ComboBox x:Name="AlignIslandBox" Grid.Column="1" Margin="0,0,0,4" SelectionChanged="AlignIsland_Changed" />
+                                        <TextBlock Grid.Row="1" Text="Versatz X" VerticalAlignment="Center" Margin="0,0,8,4" />
+                                        <TextBox x:Name="AlignX" Grid.Row="1" Grid.Column="1" Margin="0,0,0,4" LostFocus="AlignValue_Commit" KeyDown="AlignValue_KeyDown" GotKeyboardFocus="AlignValue_Focus" PreviewMouseLeftButtonDown="AlignValue_MouseDown" />
+                                        <TextBlock Grid.Row="2" Text="Versatz Y" VerticalAlignment="Center" Margin="0,0,8,4" />
+                                        <TextBox x:Name="AlignY" Grid.Row="2" Grid.Column="1" Margin="0,0,0,4" LostFocus="AlignValue_Commit" KeyDown="AlignValue_KeyDown" GotKeyboardFocus="AlignValue_Focus" PreviewMouseLeftButtonDown="AlignValue_MouseDown" />
+                                        <TextBlock Grid.Row="3" Text="Maßstab %" VerticalAlignment="Center" Margin="0,0,8,4" />
+                                        <TextBox x:Name="AlignScale" Grid.Row="3" Grid.Column="1" Margin="0,0,0,4" LostFocus="AlignValue_Commit" KeyDown="AlignValue_KeyDown" GotKeyboardFocus="AlignValue_Focus" PreviewMouseLeftButtonDown="AlignValue_MouseDown" />
+                                        <TextBlock Grid.Row="4" Text="Drehung °" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                        <TextBox x:Name="AlignAngle" Grid.Row="4" Grid.Column="1" LostFocus="AlignValue_Commit" KeyDown="AlignValue_KeyDown" GotKeyboardFocus="AlignValue_Focus" PreviewMouseLeftButtonDown="AlignValue_MouseDown" />
+                                    </Grid>
+                                    <Button x:Name="ResetAlignButton" Content="Ausrichtung zurücksetzen" HorizontalAlignment="Left" Margin="0,6,0,0"
+                                            Visibility="Collapsed" Click="ResetAlign_Click" />
+                                    <TextBlock x:Name="MapImageStatus" Style="{StaticResource Hint}" Visibility="Collapsed" />
                                 </StackPanel>
                             </GroupBox>
 
@@ -184,7 +234,8 @@
                         <Button Content="Bericht speichern …" Click="SaveReport_Click" />
                         <Button Content="Kopieren" Margin="6,0,0,0" Click="CopyReport_Click" />
                     </StackPanel>
-                    <TextBox x:Name="ReportBox" Style="{StaticResource ReportBox}" />
+                    <FlowDocumentScrollViewer x:Name="ReportView" PreviewMouseWheel="DocumentView_MouseWheel" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                              BorderBrush="#CCC" BorderThickness="1" />
                 </DockPanel>
             </TabItem>
 
@@ -199,11 +250,12 @@
                         <DockPanel Margin="0,8,0,0">
                             <Button x:Name="ApplyButton" DockPanel.Dock="Left" Content="Jetzt bereinigen …" FontWeight="SemiBold"
                                     IsEnabled="False" Click="Apply_Click" />
-                            <TextBlock Style="{StaticResource Hint}" Margin="10,0,0,0" VerticalAlignment="Center"
-                                       Text="Vorher wird automatisch eine Sicherungskopie neben dem Spielstand angelegt." />
+                            <TextBlock Style="{StaticResource Notice}" Margin="10,0,0,0" VerticalAlignment="Center"
+                                       Text="Vorher wird automatisch eine Sicherungskopie neben dem Spielstand angelegt. Der Server muss gestoppt sein." />
                         </DockPanel>
                     </StackPanel>
-                    <TextBox x:Name="PreviewBox" Style="{StaticResource ReportBox}" />
+                    <FlowDocumentScrollViewer x:Name="PreviewView" PreviewMouseWheel="DocumentView_MouseWheel" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                              BorderBrush="#CCC" BorderThickness="1" />
                 </DockPanel>
             </TabItem>
         </TabControl>

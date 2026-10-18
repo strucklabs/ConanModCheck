@@ -14,6 +14,7 @@
     <RootNamespace>ConanModCheck.Gui</RootNamespace>
     <Version>0.2.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\ConanModCheck.ico</ApplicationIcon>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
@@ -33,6 +34,10 @@
   <ItemGroup>
     <!-- WPF lässt System.IO aus den impliziten usings weg, die geteilten Quelltexte brauchen es -->
     <Using Include="System.IO" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\ConanModCheck.ico" />
   </ItemGroup>
 
   <ItemGroup>

@@ -13,6 +13,7 @@
     <RootNamespace>ConanModCheck</RootNamespace>
     <Version>0.1.0</Version>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <ApplicationIcon>Gui\Assets\ConanModCheck.ico</ApplicationIcon>
   </PropertyGroup>
 
   <!-- dotnet publish -c Release: eine einzelne EXE, die ohne installiertes .NET läuft -->
@@ -31,6 +32,8 @@
   <ItemGroup>
     <!-- Die Oberfläche ist ein eigenes Projekt im Unterordner und nutzt diese Quelltexte mit -->
     <Compile Remove="Gui\**" />
+    <!-- Hilfsskripte (z. B. Icon-Erzeugung) laufen eigenständig als dateibasierte Programme -->
+    <Compile Remove="tools\**" />
     <None Remove="Gui\**" />
     <EmbeddedResource Remove="Gui\**" />
   </ItemGroup>

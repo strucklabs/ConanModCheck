@@ -50,7 +50,7 @@ sealed class Orphans
         if (Items.Count > 0)
         {
             w.WriteLine($"{Items.Count} Items liegen in {Items.Select(i => i.OwnerId).Distinct().Count()} Behältern, die es nicht mehr gibt.");
-            w.WriteLine("Meist sind das Beutesäcke oder Leichen, die beim Neustart verschwunden sind. Das Spiel");
+            w.WriteLine("Hinweis: Meist sind das Beutesäcke oder Leichen, die beim Neustart verschwunden sind. Das Spiel");
             w.WriteLine("kann diese Items nicht mehr anzeigen, sie lassen sich gefahrlos entfernen.");
             foreach (var g in Items.GroupBy(i => i.OwnerId).OrderBy(g => g.Key))
                 w.WriteLine($"  Behälter {g.Key}: {string.Join(", ", g.OrderBy(i => i.ItemId).Select(i => itemName(i.TemplateId)))}");
@@ -64,7 +64,7 @@ sealed class Orphans
         if (FiguresWithStatsOnly.Count > 0)
         {
             w.WriteLine($"Von {FiguresWithStatsOnly.Count} Figuren sind nur noch Werte gespeichert ({FiguresWithStatsOnly.Values.Sum()} Einträge).");
-            w.WriteLine("Das sind meist getötete Thralls oder Tiere, aber auch Handwerker, die in eine Werkbank");
+            w.WriteLine("Hinweis: Das sind meist getötete Thralls oder Tiere, aber auch Handwerker, die in eine Werkbank");
             w.WriteLine("eingesetzt wurden. Diese Einträge werden deshalb nur angezeigt und nie entfernt.");
             w.WriteLine();
         }

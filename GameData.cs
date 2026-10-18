@@ -30,6 +30,8 @@ sealed class GameData : IDisposable
 
     public byte[] Read(string gamePath) => _fileIndex[gamePath].Read(gamePath);
 
+    public byte[]? TryRead(string gamePath) => _fileIndex.TryGetValue(gamePath, out var c) ? c.Read(gamePath) : null;
+
     public static GameData Load(string gameDir, Action<string> log)
     {
         var game = new GameData(gameDir);

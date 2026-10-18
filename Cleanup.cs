@@ -130,12 +130,12 @@ sealed class Cleanup
         if (Skipped.Count > 0)
         {
             w.WriteLine("Bleibt stehen:");
-            foreach (var s in Skipped) w.WriteLine($"  ! {s}");
+            foreach (var s in Skipped) w.WriteLine($"  » {s}");
             w.WriteLine();
         }
         if (Objects.Count > 0 || Items.Count > 0 || Buffs.Count > 0)
         {
-            w.WriteLine("Daten anderer Objekte, die nur auf die Mod verweisen (z. B. Einstellungen in Eigenschaften), werden nicht angefasst.");
+            w.WriteLine("Hinweis: Daten anderer Objekte, die nur auf die Mod verweisen (z. B. Einstellungen in Eigenschaften), werden nicht angefasst.");
             w.WriteLine();
         }
     }
@@ -257,7 +257,7 @@ sealed class Cleanup
     {
         var dir = Path.GetDirectoryName(Path.GetFullPath(dbPath))!;
         var name = Path.GetFileNameWithoutExtension(dbPath);
-        return Path.Combine(dir, $"{name}.vor-bereinigung-{DateTime.Now:yyyyMMdd-HHmmss}.db");
+        return Path.Combine(dir, $"{name}.backup-{DateTime.Now:yyyyMMdd-HHmmss}.db");
     }
 
     static void Exec(SqliteConnection db, string sql)

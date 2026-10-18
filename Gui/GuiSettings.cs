@@ -14,6 +14,9 @@ sealed class GuiSettings
     /// <summary>Wie die Oodle-DLL verwendet werden soll: "copy", "original" oder null (noch nicht gefragt).</summary>
     public string? OodleChoice { get; set; }
 
+    /// <summary>Nachjustierte Lage der Kartenbilder: Insel → [X, Y, Breite, Höhe] in Weltkoordinaten.</summary>
+    public Dictionary<string, double[]> MapAlign { get; set; } = [];
+
     static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ConanModCheck", "settings.json");
 

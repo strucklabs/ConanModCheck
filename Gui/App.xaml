@@ -3,6 +3,29 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
+        <!-- Logo „Mod-Puzzleteil“ als Vektor, gleiche Zeichnung wie tools/MakeIcon.cs -->
+        <DrawingImage x:Key="Logo">
+            <DrawingImage.Drawing>
+                <DrawingGroup>
+                    <GeometryDrawing Brush="#3A2E28" Geometry="M18,0 H82 A18,18 0 0 1 100,18 V82 A18,18 0 0 1 82,100 H18 A18,18 0 0 1 0,82 V18 A18,18 0 0 1 18,0 Z" />
+                    <GeometryDrawing Brush="#D9B26F">
+                        <GeometryDrawing.Geometry>
+                            <GeometryGroup FillRule="Nonzero">
+                                <RectangleGeometry Rect="26,32,44,44" RadiusX="4" RadiusY="4" />
+                                <EllipseGeometry Center="48,32" RadiusX="10" RadiusY="10" />
+                                <EllipseGeometry Center="70,54" RadiusX="10" RadiusY="10" />
+                            </GeometryGroup>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Geometry="M35,55 L45,65 L61,44">
+                        <GeometryDrawing.Pen>
+                            <Pen Brush="#3A2E28" Thickness="7" StartLineCap="Round" EndLineCap="Round" LineJoin="Round" />
+                        </GeometryDrawing.Pen>
+                    </GeometryDrawing>
+                </DrawingGroup>
+            </DrawingImage.Drawing>
+        </DrawingImage>
+
         <Style TargetType="Button">
             <Setter Property="Padding" Value="12,4" />
             <Setter Property="MinHeight" Value="28" />
@@ -15,6 +38,18 @@
             <Setter Property="Foreground" Value="#666" />
             <Setter Property="TextWrapping" Value="Wrap" />
             <Setter Property="Margin" Value="0,6,0,0" />
+        </Style>
+        <!-- Gelb: Hinweis, auf den man achten sollte; Rot: Warnung -->
+        <Style x:Key="Notice" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#6B5000" />
+            <Setter Property="Background" Value="#FFF4CC" />
+            <Setter Property="Padding" Value="6,4" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,6,0,0" />
+        </Style>
+        <Style x:Key="Warning" TargetType="TextBlock" BasedOn="{StaticResource Notice}">
+            <Setter Property="Foreground" Value="#9B1C1C" />
+            <Setter Property="Background" Value="#FDECEC" />
         </Style>
         <Style x:Key="ReportBox" TargetType="TextBox">
             <Setter Property="FontFamily" Value="Consolas" />

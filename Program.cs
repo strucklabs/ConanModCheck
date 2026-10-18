@@ -89,7 +89,7 @@ try
     if (owners)
     {
         using var ownWriter = outPath != null ? new StreamWriter(outPath, false, new UTF8Encoding(true)) : null;
-        Ownership.WriteText(ownWriter ?? Console.Out, Ownership.Build(save, ItemNames.Build(game, mods), search, ItemOrigin.Build(game, mods), onlyMods));
+        Ownership.WriteText(ownWriter ?? Console.Out, Ownership.Build(save, ItemNames.Build(game, mods), search, ItemOrigin.Build(game, mods), onlyMods ? ItemFilter.AllMods : ItemFilter.All));
         return 0;
     }
 

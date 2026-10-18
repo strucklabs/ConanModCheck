@@ -24,6 +24,9 @@ sealed class ItemOrigin
         return null;
     }
 
+    /// <summary>Stammt das Item aus einer Mod, deren Datei geladen ist?</summary>
+    public bool IsFromLoadedMod(long id) => _modOf.ContainsKey(id);
+
     /// <summary>Ohne Spieldateien lässt sich nicht entscheiden, was zum Spiel gehört.</summary>
     public bool CanTellGameItems => _gameIds != null;
 }

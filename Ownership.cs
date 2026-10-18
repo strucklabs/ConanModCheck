@@ -2,6 +2,9 @@ using System.Globalization;
 
 namespace ConanModCheck;
 
+/// <summary>Welche Items der Baum zeigt.</summary>
+enum ItemFilter { All, AllMods, LoadedMods, SelectedMods }
+
 enum OwnKind { Clan, Player, Figure, Container, Buildings, Building, Section, Item, Group }
 
 /// <summary>Ein Knoten im Baum „Wer hat was“.</summary>
@@ -37,22 +40,33 @@ sealed class Ownership
     readonly ItemNames _names;
     readonly string? _filter;
     readonly ItemOrigin? _origin;
-    readonly bool _onlyMods;
+    readonly ItemFilter _mode;
+    readonly HashSet<string> _selectedMods;
 
     /// <summary>Es wird gefiltert: leere Spieler, Begleiter und Gebäude ausblenden.</summary>
-    bool Filtering => _filter != null || _onlyMods;
+    bool Filtering => _filter != null || _mode != ItemFilter.All;
 
-    Ownership(SaveGame save, ItemNames names, string? filter, ItemOrigin? origin, bool onlyMods)
+    Ownership(SaveGame save, ItemNames names, string? filter, ItemOrigin? origin, ItemFilter mode, HashSet<string>? selectedMods)
     {
         _save = save;
         _names = names;
         _filter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();
         _origin = origin;
-        _onlyMods = onlyMods && origin != null;
+        _mode = origin == null ? ItemFilter.All : mode;
+        _selectedMods = selectedMods ?? [];
     }
 
-    public static List<OwnNode> Build(SaveGame save, ItemNames names, string? filter = null, ItemOrigin? origin = null, bool onlyMods = false) =>
-        new Ownership(save, names, filter, origin, onlyMods).Build();
+    public static List<OwnNode> Build(SaveGame save, ItemNames names, string? filter = null, ItemOrigin? origin = null,
+        ItemFilter mode = ItemFilter.All, HashSet<string>? selectedMods = null) =>
+        new Ownership(save, names, filter, origin, mode, selectedMods).Build();
+
+    bool PassesFilter(long id, string? mod) => _mode switch
+    {
+        ItemFilter.AllMods => mod != null,
+        ItemFilter.LoadedMods => _origin!.IsFromLoadedMod(id),
+        ItemFilter.SelectedMods => mod != null && _selectedMods.Contains(mod),
+        _ => true,
+    };
 
     List<OwnNode> Build()
     {
@@ -192,7 +206,7 @@ sealed class Ownership
             {
                 var label = _names.Label(g.Id);
                 var mod = _origin?.ModTag(g.Id);
-                if (_onlyMods && mod == null) continue;
+                if (!PassesFilter(g.Id, mod)) continue;
                 if (_filter != null && !label.Contains(_filter, StringComparison.CurrentCultureIgnoreCase)
                     && !(mod?.Contains(_filter, StringComparison.CurrentCultureIgnoreCase) ?? false)) continue;
                 var text = g.Qty > 1 ? $"{label} × {g.Qty.ToString("N0", Numbers)}" : label;

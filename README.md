@@ -16,9 +16,9 @@ Es gibt zwei Programme:
 
 Der Reiter **Besitz** zeigt als aufklappbaren Baum, wer was hat: Clan → Spieler (mit Stufe und letztem Login) → Inventar, Ausrüstung, Thralls und Tiere mit Namen und Ausrüstung, Behälter und Stationen mit Inhalt und Gebäude. Über das Suchfeld lässt sich ein Item finden („Wer hat Sternenmetall?“). Ein Rechtsklick auf ein Objekt kopiert den Teleport-Befehl für die Admin-Konsole.
 
-Items aus Mods tragen im Baum den Namen ihrer Mod in eckigen Klammern. Mit dem Haken **„Nur Items aus Mods“** bleiben nur diese übrig. So sieht man vor dem Entfernen einer Mod, wer noch Sachen daraus besitzt. Die Suche findet auch Mod-Namen.
+Items aus Mods tragen im Baum den Namen ihrer Mod in eckigen Klammern. Die Auswahl neben dem Suchfeld schränkt den Baum ein: **alle Items**, **Items aus allen Mods**, **aus geladenen Mods** (deren Datei angegeben ist) oder **aus angehakten Mods** (in der Übersicht zum Entfernen markiert). So sieht man vor dem Entfernen einer Mod, wer noch Sachen daraus besitzt. Die Suche findet auch Mod-Namen.
 
-Der Reiter **Karte** zeigt alle Gebäude, platzierten Objekte, Thralls, Tiere und Spieler von oben, eingefärbt nach Besitzer. Bauteile aus Mods sind orange, aus Mods, die in der Übersicht zum Entfernen angehakt sind, rot. Zoomen geht mit dem Mausrad, Verschieben durch Ziehen. Ein Klick zeigt Besitzer, Bauteile und Position. Bei einem Gebäude lässt sich eine einzelne Ebene als Grundriss hervorheben. Die Formen sind vereinfacht, da sie nur aus Bauteiltyp, Lage und Drehung abgeleitet werden.
+Der Reiter **Karte** zeigt alle Gebäude, platzierten Objekte, Thralls, Tiere und Spieler von oben. Bauteile des Spiels sind grau (je Besitzer ein anderer Grauton), Bauteile aus Mods gelb, aus Mods, die in der Übersicht zum Entfernen angehakt sind, rot. Darunter liegt schemenhaft die Spielkarte. Sie wird zur Laufzeit aus der Spielinstallation gelesen, für die Verbannten Lande und für Siptah, das in Conan Exiles Enhanced in derselben Welt weit östlich liegt. Die Knöpfe „Verbannte Lande“ und „Siptah“ springen direkt dorthin. Die Lage der Kartenbilder ist aus dem Spielstand abgeleitet und nicht exakt. Unter „Karte ausrichten“ lässt sie sich mit der Maus oder über Zahlen (Versatz X/Y, Maßstab, Drehung) korrigieren, und die Korrektur wird gespeichert. Zoomen geht mit dem Mausrad, Verschieben durch Ziehen. Ein Klick zeigt Besitzer, Bauteile und Position. Bei einem Gebäude lässt sich eine einzelne Ebene als Grundriss hervorheben. Die Formen sind vereinfacht, da sie nur aus Bauteiltyp, Lage und Drehung abgeleitet werden.
 
 Items erscheinen überall mit Namen, auf Deutsch, wenn das Spiel eine Übersetzung hat, sonst auf Englisch. Items aus Mods, deren Datei nicht angegeben ist, bleiben Nummern.
 
@@ -43,6 +43,8 @@ Ohne `--mod` zeigt der Bericht nur die Übersicht aller Mod-Ordner im Spielstand
 - `--nur-mods`: Wie `--besitz`, aber nur Items aus Mods.
 
 ## Reste ohne Besitzer
+
+In der Übersicht zeigt die Spalte **Mod-Controller**, ob die Mod ihre Steuerung im Spielstand hat (siehe unten). Diese Controller zählen nicht zu den „Objekten“. Im Bericht und in der Vorschau sind Warnungen rot und Hinweise gelb markiert.
 
 Der Bericht listet außerdem Einträge auf, deren Besitzer nicht mehr existiert:
 
@@ -82,12 +84,16 @@ Was absichtlich stehen bleibt:
 - **Mod-Behälter, in denen noch andere Items liegen.** Diese bitte erst ausräumen. Mit `--include-contents` werden sie samt Inhalt entfernt.
 - Daten an Objekten des Spiels, die nur auf die Mod verweisen.
 
-Vor jeder Änderung wird eine Sicherungskopie `game.vor-bereinigung-<Datum>-<Uhrzeit>.db` neben der Datenbank angelegt. Alles läuft in einer einzigen Transaktion, danach wird die Datenbank geprüft. Wenn der Server die Datenbank gerade benutzt, bricht das Werkzeug ab. Zum Schluss sind alle Änderungen in der `game.db` selbst gespeichert, ohne `-wal`-Datei daneben. Sie kann also direkt wieder hochgeladen werden.
+Vor jeder Änderung wird eine Sicherungskopie `game.backup-<Datum>-<Uhrzeit>.db` neben der Datenbank angelegt. Alles läuft in einer einzigen Transaktion, danach wird die Datenbank geprüft. Wenn der Server die Datenbank gerade benutzt, bricht das Werkzeug ab. Zum Schluss sind alle Änderungen in der `game.db` selbst gespeichert, ohne `-wal`-Datei daneben. Sie kann also direkt wieder hochgeladen werden.
 
 ## Voraussetzungen
 
 - **Oodle:** Die Dateien von Mods und Spiel sind mit Oodle komprimiert. Conan Exiles hat die Bibliothek fest eingebaut. Viele andere Spiele liefern sie als `oo2core_9_win64.dll` mit, zum Beispiel Destiny 2 oder Warhammer 40,000: Darktide. Diese DLL wird hier nicht mitgeliefert. Die Oberfläche sucht sie in allen Steam-Bibliotheken. Wird sie in einem anderen Spiel gefunden, fragt sie einmal, ob die DLL neben das Programm kopiert oder weiter vom Fundort geladen werden soll. Unter „Einstellungen“ steht, woher sie gerade geladen wird. Eine kopierte DLL bitte nicht zusammen mit dem Programm weitergeben.
 - **Spieldateien:** Ohne Spieldateien lassen sich neue Items nicht von veränderten Spiel-Items trennen.
+
+## Mod-Controller
+
+Eine Mod bringt meist einen Mod-Controller mit. Das ist ein unsichtbares Objekt, das der Server beim Start für jede aktive Mod am Weltursprung (0/0/0) anlegt. Darüber hängt sich die Mod ins Spiel ein, zum Beispiel mit eigenen Datentabellen oder Startcode. Fehlt die Mod, lädt der Server den Controller nicht mehr, die Einträge bleiben aber im Spielstand. Die Bereinigung entfernt sie mit.
 
 ## Bauen
 
@@ -96,4 +102,4 @@ dotnet publish ConanModCheck.csproj -c Release -o dist
 dotnet publish Gui/ConanModCheck.Gui.csproj -c Release -o dist
 ```
 
-Das ergibt `dist/ConanModCheck-cli.exe` und `dist/ConanModCheck.exe`. Beide sind einzelne Dateien, die ohne installiertes .NET laufen. Die Oberfläche (`Gui/`) nutzt die Quelltexte aus dem Hauptordner mit.
+Das ergibt `dist/ConanModCheck-cli.exe` und `dist/ConanModCheck.exe`. Das Programm-Icon entsteht aus `tools/MakeIcon.cs` (`dotnet run --file tools/MakeIcon.cs`). Beide sind einzelne Dateien, die ohne installiertes .NET laufen. Die Oberfläche (`Gui/`) nutzt die Quelltexte aus dem Hauptordner mit.

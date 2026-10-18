@@ -21,6 +21,15 @@ enum MapObjectKind { Placeable, Figure, Player }
 
 sealed record MapObject(WorldObject Object, MapObjectKind Kind, long Owner);
 
+/// <summary>Ein Kartenbild unter der Karte: abgedeckte Weltfläche und Drehung (Grad, um die Mitte).</summary>
+sealed class MapBackground(string key, ImageSource image, Rect world, double angle)
+{
+    public string Key { get; } = key;
+    public ImageSource Image { get; } = image;
+    public Rect World { get; set; } = world;
+    public double Angle { get; set; } = angle;
+}
+
 /// <summary>
 /// Draufsicht auf die Welt: Gebäude, platzierte Objekte, Thralls/Tiere und Spieler.
 /// Weltkoordinaten: X nach rechts, Y nach unten (wie die Karte im Spiel).
@@ -49,28 +58,47 @@ sealed class MapView : FrameworkElement
     public double? Level { get => _level; set { _level = value; _geometry.Remove(SelectedBuilding?.Id ?? -1); InvalidateVisual(); } }
     double? _level;
 
+    /// <summary>Kartenbilder der Inseln, schemenhaft unter allem anderen.</summary>
+    readonly List<MapBackground> _backgrounds = [];
+    public bool ShowBackground { get; set; } = true;
+
+    /// <summary>Ausrichtmodus: Ziehen verschiebt das Kartenbild unter der Maus, das Mausrad skaliert es.</summary>
+    public bool AlignMode { get => _alignMode; set { _alignMode = value; Cursor = value ? Cursors.SizeAll : Cursors.Hand; } }
+    bool _alignMode;
+    int _alignIndex = -1;
+    Rect _alignStartRect;
+
+    /// <summary>Ein Kartenbild wurde im Ausrichtmodus verschoben oder skaliert.</summary>
+    public event Action<MapBackground>? BackgroundMoved;
+
     public bool ShowPlaceables { get; set; } = true;
     public bool ShowFigures { get; set; } = true;
     public bool ShowPlayers { get; set; } = true;
 
     public event Action? SelectionChanged;
 
-    static readonly Brush Background = Frozen(new SolidColorBrush(Color.FromRgb(0xF4, 0xF1, 0xEA)));
-    static readonly Pen GridPen = FrozenPen(Color.FromRgb(0xDD, 0xD8, 0xCC), 1);
-    static readonly Brush GridText = Frozen(new SolidColorBrush(Color.FromRgb(0x99, 0x93, 0x86)));
-    public static readonly Brush ModBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xE8, 0x59, 0x0C)));
-    public static readonly Brush SelectedModBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xC9, 0x1A, 0x1A)));
-    public static readonly Brush PlaceableBrush = Frozen(new SolidColorBrush(Color.FromRgb(0x4C, 0x5D, 0x70)));
-    public static readonly Brush FigureBrush = Frozen(new SolidColorBrush(Color.FromRgb(0x2B, 0x8A, 0x3E)));
-    public static readonly Brush PlayerBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xC2, 0x25, 0x5C)));
+    public static readonly Color BackgroundColor = Color.FromRgb(0xF7, 0xF6, 0xF2);
+    static readonly Brush Background = Frozen(new SolidColorBrush(BackgroundColor));
+    static readonly Pen GridPen = FrozenPen(Color.FromRgb(0xE2, 0xDF, 0xD6), 1);
+    static readonly Brush GridText = Frozen(new SolidColorBrush(Color.FromRgb(0x99, 0x95, 0x8B)));
+
+    // Mod-Teile gelb, zum Entfernen angehakte rot – beide mit dunklem Rand, damit sie auch klein trennbar bleiben
+    public static readonly Brush ModBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xF5, 0xC4, 0x00)));
+    static readonly Color ModEdge = Color.FromRgb(0x8A, 0x6A, 0x00);
+    public static readonly Brush SelectedModBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xD7, 0x26, 0x3D)));
+    static readonly Color SelectedModEdge = Color.FromRgb(0x7A, 0x0E, 0x1C);
+    public static readonly Brush PlaceableBrush = Frozen(new SolidColorBrush(Color.FromRgb(0x2E, 0x3A, 0x46)));
+    public static readonly Brush FigureBrush = Frozen(new SolidColorBrush(Color.FromRgb(0x1F, 0x9E, 0x89)));
+    public static readonly Brush PlayerBrush = Frozen(new SolidColorBrush(Color.FromRgb(0x7B, 0x4F, 0xD6)));
+    static readonly Pen DotPen = FrozenPen(Colors.White, 1.5);
     static readonly Pen SelectionPen = FrozenPen(Color.FromRgb(0x1C, 0x7E, 0xD6), 2);
 
-    /// <summary>Gut unterscheidbare Farben für Besitzer.</summary>
+    /// <summary>Besitzerfarben bewusst entsättigt, damit Mod-Teile herausstechen.</summary>
     public static readonly Brush[] OwnerBrushes = new[]
     {
-        Color.FromRgb(0x5F, 0x7A, 0x96), Color.FromRgb(0x8C, 0x6D, 0x46), Color.FromRgb(0x6A, 0x8E, 0x5A),
-        Color.FromRgb(0x84, 0x5E, 0x8E), Color.FromRgb(0x4E, 0x8C, 0x8A), Color.FromRgb(0x9A, 0x8A, 0x4A),
-        Color.FromRgb(0x7A, 0x7A, 0x7A), Color.FromRgb(0xA0, 0x60, 0x60),
+        Color.FromRgb(0x8C, 0x93, 0x9B), Color.FromRgb(0x6F, 0x87, 0x96), Color.FromRgb(0x7F, 0x8F, 0x7A),
+        Color.FromRgb(0x98, 0x91, 0x8A), Color.FromRgb(0x7A, 0x7F, 0x99), Color.FromRgb(0x66, 0x70, 0x7A),
+        Color.FromRgb(0xA3, 0xA8, 0xAD), Color.FromRgb(0x8F, 0x84, 0x78),
     }.Select(c => Frozen(new SolidColorBrush(c))).ToArray();
 
     public MapView()
@@ -97,6 +125,24 @@ sealed class MapView : FrameworkElement
     public void RefreshColors()
     {
         _geometry.Clear();
+        InvalidateVisual();
+    }
+
+    /// <summary>Setzt die Kartenbilder (Graustufen) und die Weltflächen, die sie abdecken.</summary>
+    public void SetBackgrounds(IEnumerable<MapBackground> backgrounds)
+    {
+        _backgrounds.Clear();
+        _backgrounds.AddRange(backgrounds);
+        InvalidateVisual();
+    }
+
+    public MapBackground? GetBackground(string key) => _backgrounds.FirstOrDefault(b => b.Key == key);
+
+    public void UpdateBackground(string key, Rect world, double angle)
+    {
+        if (GetBackground(key) is not { } b) return;
+        b.World = world;
+        b.Angle = angle;
         InvalidateVisual();
     }
 
@@ -140,6 +186,23 @@ sealed class MapView : FrameworkElement
     {
         var p = e.GetPosition(this);
         var world = ToWorld(p);
+        if (AlignMode && BackgroundAt(world) is int bi and >= 0)
+        {
+            // Kartenbild fein um den Mauspunkt skalieren
+            var bg = _backgrounds[bi];
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+                bg.Angle += e.Delta > 0 ? 0.1 : -0.1; // Strg + Mausrad: fein drehen
+            else
+            {
+                var r = bg.World;
+                double f = e.Delta > 0 ? 1.002 : 1 / 1.002;
+                bg.World = new Rect(world.X - (world.X - r.X) * f, world.Y - (world.Y - r.Y) * f, r.Width * f, r.Height * f);
+            }
+            BackgroundMoved?.Invoke(bg);
+            InvalidateVisual();
+            e.Handled = true;
+            return;
+        }
         double factor = e.Delta > 0 ? 1.25 : 0.8;
         _scale = Math.Clamp(_scale * factor, 1e-5, 2);
         _offset = new Point(p.X - world.X * _scale, p.Y - world.Y * _scale);
@@ -153,6 +216,8 @@ sealed class MapView : FrameworkElement
         _dragStart = e.GetPosition(this);
         _dragOffset = _offset;
         _dragged = false;
+        _alignIndex = AlignMode ? BackgroundAt(ToWorld(_dragStart.Value)) : -1;
+        if (_alignIndex >= 0) _alignStartRect = _backgrounds[_alignIndex].World;
         CaptureMouse();
         e.Handled = true;
     }
@@ -164,16 +229,34 @@ sealed class MapView : FrameworkElement
         if (!_dragged && (p - start).Length < 4) return;
         _dragged = true;
         Cursor = Cursors.SizeAll;
-        _offset = _dragOffset + (p - start);
+        if (_alignIndex >= 0)
+        {
+            var d = (p - start) / _scale;
+            _backgrounds[_alignIndex].World = new Rect(_alignStartRect.X + d.X, _alignStartRect.Y + d.Y, _alignStartRect.Width, _alignStartRect.Height);
+        }
+        else _offset = _dragOffset + (p - start);
         InvalidateVisual();
     }
 
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
     {
         ReleaseMouseCapture();
-        Cursor = Cursors.Hand;
-        if (_dragStart != null && !_dragged) Select(e.GetPosition(this));
+        Cursor = AlignMode ? Cursors.SizeAll : Cursors.Hand;
+        if (_alignIndex >= 0 && _dragged)
+            BackgroundMoved?.Invoke(_backgrounds[_alignIndex]);
+        else if (_dragStart != null && !_dragged && !AlignMode) Select(e.GetPosition(this));
         _dragStart = null;
+        _alignIndex = -1;
+    }
+
+    /// <summary>Index des Kartenbilds unter einem Weltpunkt (oder des nächstgelegenen), -1 wenn keins.</summary>
+    int BackgroundAt(Point world)
+    {
+        if (_backgrounds.Count == 0) return -1;
+        int hit = _backgrounds.FindIndex(b => b.World.Contains(world));
+        if (hit >= 0) return hit;
+        return _backgrounds.Select((b, i) => (i, d: (new Point(b.World.X + b.World.Width / 2, b.World.Y + b.World.Height / 2) - world).Length))
+            .OrderBy(t => t.d).First().i;
     }
 
     void Select(Point screen)
@@ -223,6 +306,18 @@ sealed class MapView : FrameworkElement
         if (_fitPending && ActualWidth >= 50 && ActualHeight >= 50) FitAll();
         var size = new Rect(0, 0, ActualWidth, ActualHeight);
         dc.DrawRectangle(Background, null, size);
+        if (ShowBackground && _backgrounds.Count > 0)
+        {
+            dc.PushTransform(new MatrixTransform(_scale, 0, 0, _scale, _offset.X, _offset.Y));
+            foreach (var b in _backgrounds)
+            {
+                var w = b.World;
+                dc.PushTransform(new RotateTransform(b.Angle, w.X + w.Width / 2, w.Y + w.Height / 2));
+                dc.DrawImage(b.Image, w);
+                dc.Pop();
+            }
+            dc.Pop();
+        }
         DrawGrid(dc);
 
         var view = new Rect(ToWorld(new Point(0, 0)), ToWorld(new Point(ActualWidth, ActualHeight)));
@@ -240,8 +335,11 @@ sealed class MapView : FrameworkElement
                 var r = new Rect(tl, br);
                 if (r.Width < 4) r.Inflate((4 - r.Width) / 2, 0);
                 if (r.Height < 4) r.Inflate(0, (4 - r.Height) / 2);
-                var brush = b.ModPieces == 0 ? ownerBrush : b.Pieces.Any(p => IsSelectedModPiece(p)) ? SelectedModBrush : ModBrush;
-                dc.DrawRectangle(brush, b == SelectedBuilding ? SelectionPen : null, r);
+                bool selectedMod = b.ModPieces > 0 && b.Pieces.Any(p => IsSelectedModPiece(p));
+                var brush = b.ModPieces == 0 ? ownerBrush : selectedMod ? SelectedModBrush : ModBrush;
+                var edge = b == SelectedBuilding ? SelectionPen
+                         : b.ModPieces == 0 ? null : new Pen(new SolidColorBrush(selectedMod ? SelectedModEdge : ModEdge), 1);
+                dc.DrawRectangle(brush, edge, r);
                 continue;
             }
 
@@ -249,16 +347,11 @@ sealed class MapView : FrameworkElement
             dc.PushTransform(new MatrixTransform(_scale, 0, 0, _scale, _offset.X, _offset.Y));
             bool faded = SelectedBuilding == b && _level != null;
             if (faded) dc.PushOpacity(0.18);
-            dc.DrawGeometry(ownerBrush, null, g.Normal);
-            dc.DrawGeometry(ModBrush, null, g.Mod);
-            dc.DrawGeometry(SelectedModBrush, null, g.Selected);
+            DrawPieces(dc, ownerBrush, g);
             if (faded)
             {
                 dc.Pop();
-                var level = LevelGeometry(b);
-                dc.DrawGeometry(ownerBrush, null, level.Normal);
-                dc.DrawGeometry(ModBrush, null, level.Mod);
-                dc.DrawGeometry(SelectedModBrush, null, level.Selected);
+                DrawPieces(dc, ownerBrush, LevelGeometry(b));
             }
             dc.Pop();
 
@@ -273,8 +366,17 @@ sealed class MapView : FrameworkElement
             if (!view.Contains(o.Object.X, o.Object.Y)) continue;
             var brush = o.Kind switch { MapObjectKind.Placeable => PlaceableBrush, MapObjectKind.Figure => FigureBrush, _ => PlayerBrush };
             var p = ToScreen(o.Object.X, o.Object.Y);
-            dc.DrawEllipse(brush, o == SelectedObject ? SelectionPen : null, p, o.Kind == MapObjectKind.Player ? radius + 2 : radius, o.Kind == MapObjectKind.Player ? radius + 2 : radius);
+            dc.DrawEllipse(brush, o == SelectedObject ? SelectionPen : DotPen, p, o.Kind == MapObjectKind.Player ? radius + 2 : radius, o.Kind == MapObjectKind.Player ? radius + 2 : radius);
         }
+    }
+
+    /// <summary>Zeichnet die Bauteile eines Gebäudes; Mod-Teile mit dunklem Rand (1,5 Pixel, unabhängig vom Zoom).</summary>
+    void DrawPieces(DrawingContext dc, Brush ownerBrush, (Geometry Normal, Geometry Mod, Geometry Selected) g)
+    {
+        dc.DrawGeometry(ownerBrush, null, g.Normal);
+        double edge = 1.5 / _scale;
+        dc.DrawGeometry(ModBrush, new Pen(new SolidColorBrush(ModEdge), edge), g.Mod);
+        dc.DrawGeometry(SelectedModBrush, new Pen(new SolidColorBrush(SelectedModEdge), edge), g.Selected);
     }
 
     void DrawGrid(DrawingContext dc)

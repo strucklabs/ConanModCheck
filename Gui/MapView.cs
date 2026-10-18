@@ -431,7 +431,9 @@ sealed class MapView : FrameworkElement
                 AddPiece(ctx, p);
             }
         }
-        normal.Freeze(); mod.Freeze(); selected.Freeze();
+        // Übereinanderliegende Teile (Fundament, Decke, Dach) dürfen sich nicht gegenseitig
+        // „ausstanzen“, wie es die Standard-Füllregel (gerade/ungerade) täte
+        foreach (var g in new[] { normal, mod, selected }) { g.FillRule = FillRule.Nonzero; g.Freeze(); }
         return (normal, mod, selected);
     }
 

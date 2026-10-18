@@ -1,0 +1,39 @@
+<Window x:Class="ConanModCheck.Gui.OodleDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Oodle-Bibliothek gefunden"
+        Width="560" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <StackPanel Margin="18">
+        <TextBlock TextWrapping="Wrap" FontWeight="SemiBold" FontSize="13.5"
+                   Text="Zum Entpacken der Mod- und Spieldateien braucht ConanModCheck die Oodle-Bibliothek. Sie wurde in einem anderen Spiel gefunden:" />
+
+        <Border Margin="0,12,0,0" Padding="10,8" Background="#F3F3F3" CornerRadius="3">
+            <StackPanel>
+                <TextBlock x:Name="GameText" FontWeight="SemiBold" />
+                <TextBlock x:Name="PathText" TextWrapping="Wrap" Foreground="#555" Margin="0,2,0,0" />
+            </StackPanel>
+        </Border>
+
+        <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" Text="Wie soll ConanModCheck sie künftig verwenden?" />
+
+        <Button x:Name="CopyButton" Margin="0,10,0,0" HorizontalContentAlignment="Left" Padding="12,8" Click="Copy_Click" IsDefault="True">
+            <StackPanel>
+                <TextBlock Text="Neben das Programm kopieren (empfohlen)" FontWeight="SemiBold" />
+                <TextBlock x:Name="CopyHint" TextWrapping="Wrap" Foreground="#555"
+                           Text="Funktioniert dann auch, wenn das andere Spiel aktualisiert oder deinstalliert wird." />
+            </StackPanel>
+        </Button>
+
+        <Button Margin="0,8,0,0" HorizontalContentAlignment="Left" Padding="12,8" Click="KeepOriginal_Click">
+            <StackPanel>
+                <TextBlock Text="Weiter von dort laden" FontWeight="SemiBold" />
+                <TextBlock TextWrapping="Wrap" Foreground="#555"
+                           Text="Es wird nichts kopiert. Fehlt die Datei später, wird neu gesucht und noch einmal gefragt." />
+            </StackPanel>
+        </Button>
+
+        <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" Foreground="#777" FontSize="11.5"
+                   Text="Die Bibliothek gehört Epic Games (RAD). Eine kopierte Datei bitte nicht zusammen mit ConanModCheck weitergeben. Die Wahl lässt sich später unter „Einstellungen“ ändern." />
+    </StackPanel>
+</Window>

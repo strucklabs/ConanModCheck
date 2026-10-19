@@ -182,9 +182,11 @@ public partial class MainWindow : Window
             _analyzedDb = db;
 
             BuildRows(sameDb ? previous : null);
+            // Karte und Verzeichnis zuerst: Bericht und Vorschau setzen nur Links auf das, was dort steht
+            RefreshMap(keepView: sameDb);
+            RefreshDirectory();
             RefreshResults();
             RefreshOwnership();
-            RefreshMap(keepView: sameDb);
             AskAboutOodle();
             UpdateOodleInfo();
             SaveSettings();
@@ -204,7 +206,21 @@ public partial class MainWindow : Window
     void BuildRows(HashSet<string>? keepSelection)
     {
         _rows.Clear();
-        var stats = Report.FolderStats(_save!).ToDictionary(s => s.Folder, StringComparer.OrdinalIgnoreCase);
+        ShowModDetails(null);
+        var save = _save!;
+        var stats = Report.FolderStats(save).ToDictionary(s => s.Folder, StringComparer.OrdinalIgnoreCase);
+        // Ein Bericht ohne Ausgabe liefert je Mod den Abschnitt für die Detailansicht samt Warnungen
+        var describer = new Report(save, [], _game, TextWriter.Null, _mods);
+        var described = new Dictionary<ModPackage, (string Text, List<string> Warnings, List<string> Findings)>();
+        (string Text, List<string> Warnings, List<string> Findings) Describe(ModPackage m) =>
+            described.TryGetValue(m, out var d) ? d : described[m] = describer.DescribeMod(m);
+        // Items und Erlerntes lassen sich nur mit Mod-Datei zuordnen
+        (string Items, string Learned) Counts(ModPackage? m)
+        {
+            if (m is not { HasFile: true }) return ("–", "–");
+            var (physical, learned) = Report.ItemCounts(save, m);
+            return (physical.ToString(L.Numbers), learned.ToString(L.Numbers));
+        }
         var folders = new SortedSet<string>(stats.Keys, StringComparer.OrdinalIgnoreCase);
         foreach (var m in _mods) folders.UnionWith(m.ModFolders);
 
@@ -212,6 +228,8 @@ public partial class MainWindow : Window
         {
             var mod = _mods.FirstOrDefault(m => m.ModFolders.Contains(f));
             var s = stats.GetValueOrDefault(f);
+            var d = Describe(mod ?? ModPackage.FromFolder(f));
+            var (items, learned) = Counts(mod);
             var row = new FolderRow(f, mod)
             {
                 Objects = s?.Objects ?? 0,
@@ -219,6 +237,10 @@ public partial class MainWindow : Window
                 Pieces = s?.Pieces ?? 0,
                 Props = s?.Props ?? 0,
                 Buffs = s?.Buffs ?? 0,
+                Items = items,
+                Learned = learned,
+                Warnings = d.Warnings,
+                Details = d.Text,
             };
             row.SetQuietly(mod != null || keepSelection?.Contains(f) == true);
             row.Changed = OnRowChanged;
@@ -228,11 +250,46 @@ public partial class MainWindow : Window
         // Mods ganz ohne eigenen Ordner (ersetzen nur Spieldateien) trotzdem zeigen
         foreach (var m in _mods.Where(m => m.ModFolders.Count == 0))
         {
-            var row = new FolderRow($"({m.Name})", m);
+            var d = Describe(m);
+            var (items, learned) = Counts(m);
+            var row = new FolderRow($"({m.Name})", m) { Items = items, Learned = learned, Warnings = d.Warnings, Details = d.Text };
             row.SetQuietly(true);
             row.Changed = OnRowChanged;
             _rows.Add(row);
         }
+    }
+
+    /// <summary>Steht das Gebäude oder Objekt mit dieser ID auf der Karte?</summary>
+    bool CanShowOnMap(long id) => _mapBuildings.Any(b => b.Id == id) || _mapObjects.Any(o => o.Object.Id == id);
+
+    /// <summary>Sprung aus Bericht oder Details: zur Karte wechseln und die Stelle auswählen.</summary>
+    void ShowOnMap(long id)
+    {
+        if (Tabs.SelectedItem != MapTabItem) Remember();
+        Tabs.SelectedItem = MapTabItem;
+        // Erst nach dem Umschalten hat die Karte ihre Größe, sonst passt das Einzoomen nicht
+        Dispatcher.BeginInvoke(() => Map.SelectAndZoom(id), System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    /// <summary>Sprung zu Weltkoordinaten (für Fundorte ohne eigenes Objekt auf der Karte).</summary>
+    void ShowOnMapAt(double x, double y)
+    {
+        if (Tabs.SelectedItem != MapTabItem) Remember();
+        Tabs.SelectedItem = MapTabItem;
+        Dispatcher.BeginInvoke(() => Map.ShowAt(x, y), System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    MapLinks Links => new(_dirObjectIds.Contains, ShowInDirectory, ShowOnMapAt,
+        name => _save?.Characters.FirstOrDefault(c => c.Value == name) is { Value: not null } c ? c.Key : null,
+        _dirItemIds.Contains, ShowItemInDirectory);
+
+    void FolderGrid_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) =>
+        ShowModDetails(FolderGrid.SelectedItem as FolderRow);
+
+    void ShowModDetails(FolderRow? row)
+    {
+        ModDetailView.Document = row == null ? null : ReportDocument.Build(row.Details, Links);
+        ModDetailHint.Visibility = row == null ? Visibility.Visible : Visibility.Collapsed;
     }
 
     void OnRowChanged(FolderRow row)
@@ -245,6 +302,7 @@ public partial class MainWindow : Window
         RefreshFindings();
         RefreshSection();
         UpdateMapInfo();
+        RefreshDirectory();
         if (CurrentItemFilter() == ItemFilter.SelectedMods) RefreshOwnership();
         else RecomputeOwnershipMarks();
     }
@@ -271,7 +329,7 @@ public partial class MainWindow : Window
         var report = new StringWriter();
         new Report(_save, selected, _game, report, _mods).Write();
         _reportText = report.ToString();
-        ReportView.Document = ReportDocument.Build(_reportText);
+        ReportView.Document = ReportDocument.Build(_reportText, Links);
 
         var preview = new StringWriter();
         bool orphans = IncludeOrphansBox.IsChecked == true;
@@ -290,7 +348,7 @@ public partial class MainWindow : Window
             if (!_plan.IsEmpty)
                 preview.WriteLine(L.T("Hinweis: Das ist nur eine Vorschau. Erst „Jetzt bereinigen …“ ändert den Spielstand."));
         }
-        PreviewView.Document = ReportDocument.Build(preview.ToString());
+        PreviewView.Document = ReportDocument.Build(preview.ToString(), Links);
         ApplyButton.IsEnabled = _plan is { IsEmpty: false } && !_busy;
     }
 
@@ -374,6 +432,8 @@ public partial class MainWindow : Window
             else if (save.FigureOwner.TryGetValue(o.Id, out var g)) objects.Add(new MapObject(o, MapObjectKind.Figure, g, mod));
             else if (save.BuildingOwner.TryGetValue(o.Id, out var b)) objects.Add(new MapObject(o, MapObjectKind.Placeable, b, mod));
             else if (mod != null) objects.Add(new MapObject(o, MapObjectKind.Placeable, 0, mod));
+            // Ohne erkennbaren Besitzer (z. B. eingesetzte Thralls, Haustiere): trotzdem zeigen, damit jeder Fundort ein Ziel hat
+            else objects.Add(new MapObject(o, IsFigureClass(o.Class) ? MapObjectKind.Figure : MapObjectKind.Placeable, 0));
         }
 
         _mapBuildings = buildings;
@@ -404,6 +464,13 @@ public partial class MainWindow : Window
         SectionBackText.Text = SectionBackSlider.Value.ToString("N0", L.Numbers);
         Map.SectionFront = SectionFrontSlider.Value;
         Map.SectionBack = SectionBackSlider.Value;
+    }
+
+    static bool IsFigureClass(string cls)
+    {
+        var c = SaveGame.ShortClass(cls);
+        return c.Contains("NPC", StringComparison.OrdinalIgnoreCase) || c.Contains("Thrall", StringComparison.OrdinalIgnoreCase)
+            || c.Contains("_pet", StringComparison.OrdinalIgnoreCase) || c.Contains("Mount", StringComparison.OrdinalIgnoreCase);
     }
 
     List<MapBuilding> _mapBuildings = [];
@@ -514,6 +581,7 @@ public partial class MainWindow : Window
         var save = _save;
         LevelPanel.Visibility = Visibility.Collapsed;
         MapTeleportButton.Visibility = Visibility.Collapsed;
+        MapDirectoryButton.Visibility = Map.SelectedBuilding != null || Map.SelectedObject != null ? Visibility.Visible : Visibility.Collapsed;
 
         if (Map.SelectedBuilding is { } b)
         {
@@ -755,6 +823,22 @@ public partial class MainWindow : Window
             element = System.Windows.Media.VisualTreeHelper.GetParent(element);
         if (element is System.Windows.Controls.TreeViewItem item) { item.IsSelected = true; item.Focus(); }
         CopyTeleportItem.IsEnabled = (OwnershipTree.SelectedItem as OwnTreeItem)?.Teleport != null;
+        ShowOnMapItem.IsEnabled = ShowInDirectoryItem.IsEnabled = (OwnershipTree.SelectedItem as OwnTreeItem)?.Location != null;
+    }
+
+    void TreeShowOnMap_Click(object sender, RoutedEventArgs e) => ShowTreeItemOnMap();
+
+    void OwnershipTree_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        // Doppelklick auf ein Objekt springt zu seinem Eintrag im Verzeichnis; sonst klappt der Baum wie gewohnt auf und zu
+        if ((OwnershipTree.SelectedItem as OwnTreeItem)?.Location is { } o && _dirObjectIds.Contains(o.Id)) { ShowInDirectory(o.Id); e.Handled = true; }
+    }
+
+    void ShowTreeItemOnMap()
+    {
+        if ((OwnershipTree.SelectedItem as OwnTreeItem)?.Location is not { } o) return;
+        if (CanShowOnMap(o.Id)) ShowOnMap(o.Id);
+        else ShowOnMapAt(o.X, o.Y);
     }
 
     void CopyTeleport_Click(object sender, RoutedEventArgs e)

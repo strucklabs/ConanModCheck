@@ -60,5 +60,30 @@
             <Setter Property="TextWrapping" Value="NoWrap" />
             <Setter Property="Padding" Value="6" />
         </Style>
-    </Application.Resources>
+        <!-- Zeilentext in Bäumen: Auf farbigem Hintergrund bleibt die Schrift dunkel, auch in der ausgewählten Zeile
+         (sonst färbt die Auswahl sie weiß und sie ist auf Gelb nicht mehr zu lesen) -->
+    <Style x:Key="TreeRowText" TargetType="TextBlock">
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding HasRowBackground}" Value="True">
+                <Setter Property="Foreground" Value="#222" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <!-- Platz für den Koordinaten-Link: ohne Koordinaten ganz ausblenden, sonst bleibt in der Auswahl ein leeres Kästchen -->
+    <Style x:Key="TreeCoordBox" TargetType="TextBlock">
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Coords}" Value="">
+                <Setter Property="Visibility" Value="Collapsed" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <!-- Koordinaten-Link in Bäumen: in der ausgewählten (blau hinterlegten) Zeile weiß, sonst unlesbar -->
+    <Style x:Key="TreeCoordLink" TargetType="Hyperlink">
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=TreeViewItem}}" Value="True">
+                <Setter Property="Foreground" Value="White" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+</Application.Resources>
 </Application>

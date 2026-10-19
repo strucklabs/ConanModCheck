@@ -22,6 +22,9 @@ public sealed class OwnTreeItem : INotifyPropertyChanged
 
     public string Text { get; }
     public string? Teleport { get; }
+
+    /// <summary>Lage des Objekts in der Welt, für den Sprung zur Karte; null bei Gruppen.</summary>
+    internal WorldObject? Location { get; }
     public FontWeight Weight { get; }
     public List<OwnTreeItem> Children { get; }
 
@@ -38,12 +41,22 @@ public sealed class OwnTreeItem : INotifyPropertyChanged
     public Brush Marker => _status switch { 2 => MapView.SelectedModBrush, 1 => MapView.ModBrush, _ => Brushes.Transparent };
 
     /// <summary>Items selbst (und Objekte aus Mods) zusätzlich farbig hinterlegt.</summary>
-    public Brush RowBackground => (_isItem || _modFolder != null) && _status > 0 ? (_status == 2 ? SelectedBack : ModBack) : Brushes.Transparent;
+    public Brush RowBackground => HasRowBackground ? (_status == 2 ? SelectedBack : ModBack) : Brushes.Transparent;
+
+    /// <summary>Zeile farbig hinterlegt? Dann bleibt die Schrift dunkel, auch wenn die Zeile ausgewählt ist.</summary>
+    // Farbig hinterlegte Zeilen bedeuten im Bericht Hinweise und Warnungen; Mod-Inhalte kennzeichnet
+    // hier nur das Kästchen vor der Zeile
+    public bool HasRowBackground => false;
+
+    /// <summary>Koordinaten als anklickbarer Text hinter der Zeile, sonst leer.</summary>
+    public string Coords { get; }
 
     internal OwnTreeItem(OwnNode node, bool expand)
     {
-        Text = node.Text + (node.Location != null && node.Kind != OwnKind.Figure ? $"   ({SaveGame.Coords(node.Location)})" : "");
+        Text = node.Text;
+        Coords = node.Location is { } loc && !(loc.X == 0 && loc.Y == 0) ? SaveGame.Coords(loc) : "";
         Teleport = node.TeleportCommand;
+        Location = node.Location;
         Weight = node.Kind is OwnKind.Clan or OwnKind.Player ? FontWeights.SemiBold : FontWeights.Normal;
         _modName = node.ModName;
         _modFolder = node.ModFolder;
@@ -69,6 +82,7 @@ public sealed class OwnTreeItem : INotifyPropertyChanged
             Changed(nameof(Status));
             Changed(nameof(Marker));
             Changed(nameof(RowBackground));
+            Changed(nameof(HasRowBackground));
         }
         return status;
     }

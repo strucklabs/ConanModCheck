@@ -306,6 +306,14 @@ sealed class MapView : FrameworkElement
         else if (SelectedObject != null) FitRect(new Rect(SelectedObject.Object.X - 2000, SelectedObject.Object.Y - 2000, 4000, 4000));
     }
 
+    /// <summary>Zoomt auf Weltkoordinaten; liegt dort ein Objekt, wird es ausgewählt.</summary>
+    public void ShowAt(double x, double y)
+    {
+        var here = _objects.FirstOrDefault(o => Math.Abs(o.Object.X - x) < 1 && Math.Abs(o.Object.Y - y) < 1);
+        if (here != null) { SelectAndZoom(here.Object.Id); return; }
+        FitRect(new Rect(x - 2000, y - 2000, 4000, 4000));
+    }
+
     /// <summary>Wählt ein Gebäude oder Objekt aus (z. B. aus der Fundstellen-Liste) und zoomt darauf.</summary>
     public void SelectAndZoom(long id)
     {

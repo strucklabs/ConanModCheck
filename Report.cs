@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace ConanModCheck;
 
 sealed class FolderStat(string folder)
@@ -38,17 +40,47 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
 
         if (folders.Count == 0) { w.WriteLine(L.T("Im Spielstand gibt es keine Objekte aus Mods.")); w.WriteLine(); return; }
 
-        w.WriteLine(L.T("Je Mod-Ordner: Mod-Controller, platzierte Objekte, Bauteile, Objekte mit Mod-Daten, aktive Effekte."));
-        w.WriteLine(L.T("Hinweis: Items lassen sich nur zuordnen, wenn die Mod-Datei mit angegeben wird."));
+        w.WriteLine(L.T("Je Mod-Ordner: Mod-Controller, platzierte Objekte, Bauteile, Items in Inventaren und Behältern, erlernte Rezepte und Talente, Objekte mit Mod-Daten, aktive Effekte, Warnungen."));
+        w.WriteLine(L.T("Hinweis: Items lassen sich nur zuordnen, wenn die Mod-Datei mit angegeben wird; sonst steht dort „–“."));
         w.WriteLine();
+        var known = knownMods?.ToList() ?? mods;
+        var warnings = new List<(string Folder, List<string> Texts)>();
         int width = Math.Max(10, folders.Max(f => f.Folder.Length));
-        w.WriteLine($"  {L.T("Ordner").PadRight(width)}  {L.T("Controller"),10}  {L.T("Objekte"),7}  {L.T("Bauteile"),8}  {L.T("Mod-Daten"),9}  {L.T("Effekte"),7}  {L.T("geprüfte Mod")}");
+        w.WriteLine($"  {L.T("Ordner").PadRight(width)}  {L.T("Controller"),10}  {L.T("Objekte"),7}  {L.T("Bauteile"),8}  {L.T("Items"),6}  {L.T("Erlernt"),7}  {L.T("Mod-Daten"),9}  {L.T("Effekte"),7}  {L.T("Warnungen"),9}  {L.T("Mod-Datei")}");
         foreach (var e in folders)
         {
-            var mod = mods.FirstOrDefault(m => m.HasFile && m.ModFolders.Contains(e.Folder))?.Name ?? "";
-            w.WriteLine($"  {e.Folder.PadRight(width)}  {ControllerMark(e.Controllers),10}  {e.Objects,7}  {e.Pieces,8}  {e.Props,9}  {e.Buffs,7}  {mod}");
+            var mod = known.FirstOrDefault(m => m.HasFile && m.ModFolders.Contains(e.Folder));
+            var (items, learned) = mod != null ? ItemCounts(save, mod) : (-1, -1);
+            var found = DescribeMod(mod ?? ModPackage.FromFolder(e.Folder)).Warnings;
+            if (found.Count > 0 && !mods.Any(m => m.ModFolders.Contains(e.Folder))) warnings.Add((e.Folder, found));
+            string Count(int n) => n < 0 ? "–" : n.ToString(CultureInfo.InvariantCulture);
+            w.WriteLine($"  {e.Folder.PadRight(width)}  {ControllerMark(e.Controllers),10}  {e.Objects,7}  {e.Pieces,8}  {Count(items),6}  {Count(learned),7}  {e.Props,9}  {e.Buffs,7}  {(found.Count > 0 ? "⚠ " + found.Count : ""),9}  {mod?.Name ?? "–"}");
         }
         w.WriteLine();
+
+        // Ausgewählte Mods bekommen einen eigenen Abschnitt; die Warnungen der übrigen sollen nicht untergehen
+        if (warnings.Count > 0)
+        {
+            Sub(L.T("Warnungen bei Mods, die nicht zum Entfernen ausgewählt sind"));
+            foreach (var (folder, texts) in warnings)
+            {
+                w.WriteLine("  " + folder + ":");
+                foreach (var t in texts) w.WriteLine($"   ! {t}");
+            }
+            w.WriteLine();
+        }
+    }
+
+    /// <summary>
+    /// Items der Mod in Inventaren und Behältern (Einträge) und erlernte Rezepte und Talente bei
+    /// Spielerfiguren. Nur mit Mod-Datei möglich, da die IDs aus ihren Tabellen stammen.
+    /// </summary>
+    public static (int Items, int Learned) ItemCounts(SaveGame save, ModPackage mod)
+    {
+        var hits = save.Items.Where(i => mod.NewIds.Contains(i.TemplateId)).ToList();
+        int learned = hits.Count(i => save.Characters.ContainsKey(i.OwnerId) && i.InvType == 6);
+        int physical = hits.Count(i => !save.Characters.ContainsKey(i.OwnerId) || i.InvType is 0 or 1 or 2);
+        return (physical, learned);
     }
 
     /// <summary>"✓", "2 ✓" bei mehreren Controllern, leer ohne. Rechtsbündig gesetzt stehen alle Häkchen untereinander.</summary>
@@ -76,7 +108,24 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
 
     // ---------- Einzelne Mod ----------
 
-    void WriteMod(ModPackage mod)
+    /// <summary>
+    /// Ein einzelner Mod-Abschnitt wie im Bericht, als Text, dazu Warnungen und Folgen beim Entfernen
+    /// (für die Detailansicht der Übersicht).
+    /// </summary>
+    public (string Text, List<string> Warnings, List<string> Findings) DescribeMod(ModPackage mod)
+    {
+        var previous = w;
+        var text = new StringWriter();
+        w = text;
+        try
+        {
+            var (warnings, findings) = WriteMod(mod);
+            return (text.ToString(), warnings, findings);
+        }
+        finally { w = previous; }
+    }
+
+    (List<string> Warnings, List<string> Findings) WriteMod(ModPackage mod)
     {
         Heading(L.F("Mod: {0}", mod.Name));
         w.WriteLine(L.F("Datei: {0}", mod.Source));
@@ -111,6 +160,7 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
                 w.WriteLine("  " + L.T("Nichts davon gefährdet andere Bauten oder Gegenstände. Die Mod lässt sich entfernen, wenn der Verlust in Ordnung ist."));
         }
         w.WriteLine();
+        return (warnings, findings);
     }
 
     void WriteModFile(ModPackage mod, List<string> findings, List<string> warnings)

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Documents;
@@ -12,6 +13,16 @@ namespace ConanModCheck.Gui;
 /// in fester Schrift. Der Text selbst bleibt unverändert, damit Speichern und Kopieren weiterhin
 /// reinen Text liefern.
 /// </summary>
+/// <summary>Sprungziele für Links in Bericht und Details.</summary>
+/// <param name="CanShow">Steht das Gebäude oder Objekt mit dieser ID auf der Karte?</param>
+/// <param name="Show">Zur Karte wechseln und es auswählen.</param>
+/// <param name="ShowAt">Zur Karte wechseln und auf diese Weltkoordinaten zoomen.</param>
+/// <param name="PlayerId">ID eines Spielers zu seinem Namen, sonst null.</param>
+/// <param name="CanShowItem">Gibt es zu dieser Item-ID einen Eintrag?</param>
+/// <param name="ShowItem">Zum Eintrag der Item-Art springen.</param>
+sealed record MapLinks(Func<long, bool> CanShow, Action<long> Show, Action<double, double> ShowAt, Func<string, long?> PlayerId,
+    Func<long, bool>? CanShowItem = null, Action<long>? ShowItem = null);
+
 static class ReportDocument
 {
     static readonly Brush WarnText = Frozen(Color.FromRgb(0x9B, 0x1C, 0x1C));
@@ -31,7 +42,78 @@ static class ReportDocument
     static readonly Regex TableGap = new(@"\S {2,}\S");
     static readonly Regex WideGap = new(@"\S {3,}\S");
 
-    public static FlowDocument Build(string text)
+    // Verweise im Text: „ID 12345“ und „Gebäude 12345“ (englisch „Building 12345“) sowie Koordinaten
+    static readonly Regex PlaceRef = new(@"\b(?:ID|Gebäude|Building|Behälter|Container) (\d+)");
+    static readonly Regex CoordRef = new(@"X (-?\d+) / Y (-?\d+) / Z (-?\d+)");
+    // Item-IDs stehen in Klammern hinter dem Namen: „Stahlfeuer (14173)“
+    static readonly Regex ItemRef = new(@"(?<=\S \()(\d{3,})(?=\))");
+
+    // Für die Dauer von Build: was anklickbar ist und was ein Klick auslöst
+    static MapLinks? _links;
+    static Regex? _playerRef;
+
+    /// <param name="links">Sprungziele; ohne sie bleibt der Text ohne Links.</param>
+    public static FlowDocument Build(string text, MapLinks? links = null)
+    {
+        _links = links;
+        // Spielernamen so, wie die Texte sie schreiben: „Spieler „Name““ bzw. „Name, Stufe 12“
+        _playerRef = links == null ? null : new Regex(
+            NamePattern(L.F("Spieler „{0}“", "\u0001")) + "|^" + NamePattern(L.F("{0}, Stufe {1}", "\u0001", "\u0002")));
+        try { return BuildDocument(text); }
+        finally { _links = null; _playerRef = null; }
+    }
+
+    /// <summary>Muster aus einer übersetzten Vorlage: \u0001 wird zum Namen, \u0002 zur Zahl.</summary>
+    static string NamePattern(string template) =>
+        Regex.Escape(template).Replace("\u0001", "(?<name>[^„“”\"]+?)").Replace("\u0002", @"\d+");
+
+    /// <summary>Text als Inlines; Verweise auf Existierendes werden zu Links zur Karte.</summary>
+    static void AddText(InlineCollection inlines, string text, FontWeight? weight = null)
+    {
+        int at = 0;
+        if (_links is { } links)
+        {
+            // Alle Treffer sammeln, nach Lage sortieren, Überschneidungen auslassen
+            var found = new List<(int Index, int Length, string Shown, Action Jump)>();
+            foreach (Match m in PlaceRef.Matches(text))
+                if (long.TryParse(m.Groups[1].Value, out var id) && links.CanShow(id))
+                    found.Add((m.Index, m.Length, m.Value, () => links.Show(id)));
+            foreach (Match m in CoordRef.Matches(text))
+            {
+                double x = double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture), y = double.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+                found.Add((m.Index, m.Length, m.Value, () => links.ShowAt(x, y)));
+            }
+            if (links.CanShowItem is { } canItem && links.ShowItem is { } showItem)
+                foreach (Match m in ItemRef.Matches(text))
+                    if (long.TryParse(m.Value, out var item) && canItem(item))
+                        found.Add((m.Index, m.Length, m.Value, () => showItem(item)));
+            if (_playerRef != null)
+                foreach (Match m in _playerRef.Matches(text))
+                {
+                    var name = m.Groups["name"];
+                    if (name.Success && links.PlayerId(name.Value) is { } pid && links.CanShow(pid))
+                        found.Add((name.Index, name.Length, name.Value, () => links.Show(pid)));
+                }
+            foreach (var (index, length, shown, jump) in found.OrderBy(f => f.Index))
+            {
+                if (index < at) continue;
+                if (index > at) inlines.Add(Styled(new Run(text[at..index]), weight));
+                var link = new Hyperlink(new Run(shown)) { ToolTip = CoordRef.IsMatch(shown) ? L.T("Auf der Karte zeigen") : L.T("Im Verzeichnis zeigen") };
+                link.Click += (_, _) => jump();
+                inlines.Add(Styled(link, weight));
+                at = index + length;
+            }
+        }
+        if (at < text.Length) inlines.Add(Styled(new Run(text[at..]), weight));
+    }
+
+    static Inline Styled(Inline inline, FontWeight? weight)
+    {
+        if (weight is { } fw) inline.FontWeight = fw;
+        return inline;
+    }
+
+    static FlowDocument BuildDocument(string text)
     {
         var doc = new FlowDocument
         {
@@ -118,7 +200,7 @@ static class ReportDocument
             bool hint = hintIndent >= 0 || trimmed.StartsWith('»');
             if (continues && top <= 1 && doc.Blocks.LastBlock is Paragraph last)
             {
-                last.Inlines.Add(new Run(" " + trimmed));
+                AddText(last.Inlines, " " + trimmed);
                 continue;
             }
 
@@ -158,10 +240,10 @@ static class ReportDocument
         // Nur echte Bezeichnungen: kurz, und der Text danach geht weiter
         if (colon is > 0 and <= 40 && colon + 2 < text.Length && !text[..colon].Contains('(') && !text[..colon].Contains('“'))
         {
-            p.Inlines.Add(new Run(text[..(colon + 1)]) { FontWeight = FontWeights.SemiBold });
-            p.Inlines.Add(new Run(text[(colon + 1)..]));
+            AddText(p.Inlines, text[..(colon + 1)], FontWeights.SemiBold);
+            AddText(p.Inlines, text[(colon + 1)..]);
         }
-        else p.Inlines.Add(new Run(text));
+        else AddText(p.Inlines, text);
         return p;
     }
 

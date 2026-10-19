@@ -25,7 +25,7 @@ static unsafe class Oodle
     public static byte[] Decompress(byte[] compressed, int uncompressedSize)
     {
         if (_decompress == null)
-            throw new InvalidOperationException("Oodle wurde nicht geladen.");
+            throw new InvalidOperationException(L.T("Oodle wurde nicht geladen."));
         var output = new byte[uncompressedSize];
         long result;
         fixed (byte* src = compressed)
@@ -33,7 +33,7 @@ static unsafe class Oodle
             // fuzzSafe=1, checkCRC=0, verbosity=0, threadPhase=3 (alle Phasen)
             result = _decompress(src, compressed.Length, dst, uncompressedSize, 1, 0, 0, 0, 0, 0, 0, 0, 0, 3);
         if (result != uncompressedSize)
-            throw new InvalidDataException("Oodle konnte einen Block nicht entpacken.");
+            throw new InvalidDataException(L.T("Oodle konnte einen Block nicht entpacken."));
         return output;
     }
 

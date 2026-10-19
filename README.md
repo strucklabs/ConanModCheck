@@ -18,11 +18,13 @@ Der Reiter **Besitz** zeigt als aufklappbaren Baum, wer was hat: Clan → Spiele
 
 Items aus Mods tragen im Baum den Namen ihrer Mod in eckigen Klammern. Die Auswahl neben dem Suchfeld schränkt den Baum ein: **alle Items**, **Items aus allen Mods**, **aus geladenen Mods** (deren Datei angegeben ist) oder **aus angehakten Mods** (in der Übersicht zum Entfernen markiert). So sieht man vor dem Entfernen einer Mod, wer noch Sachen daraus besitzt. Die Suche findet auch Mod-Namen.
 
-Der Reiter **Karte** zeigt alle Gebäude, platzierten Objekte, Thralls, Tiere und Spieler von oben. Bauteile des Spiels sind grau (je Besitzer ein anderer Grauton), Bauteile aus Mods gelb, aus Mods, die in der Übersicht zum Entfernen angehakt sind, rot. Darunter liegt schemenhaft die Spielkarte. Sie wird zur Laufzeit aus der Spielinstallation gelesen, für die Verbannten Lande und für Siptah, das in Conan Exiles Enhanced in derselben Welt weit östlich liegt. Die Knöpfe „Verbannte Lande“ und „Siptah“ springen direkt dorthin. Die Lage der Kartenbilder ist aus dem Spielstand abgeleitet und nicht exakt. Unter „Karte ausrichten“ lässt sie sich mit der Maus oder über Zahlen (Versatz X/Y, Maßstab, Drehung) korrigieren, und die Korrektur wird gespeichert. Zoomen geht mit dem Mausrad, Verschieben durch Ziehen. Ein Klick zeigt Besitzer, Bauteile und Position. Bei einem Gebäude lässt sich eine einzelne Ebene als Grundriss hervorheben. Die Formen sind vereinfacht, da sie nur aus Bauteiltyp, Lage und Drehung abgeleitet werden.
+Der Reiter **Karte** zeigt alle Gebäude, platzierten Objekte, Thralls, Tiere und Spieler von oben. Bauteile des Spiels sind grau (je Besitzer ein anderer Grauton), Mod-Inhalte gelb, Inhalte von Mods, die in der Übersicht zum Entfernen angehakt sind, rot. Siptah liegt in Conan Exiles Enhanced in derselben Welt weit östlich der Verbannten Lande; die Knöpfe „Ganze Karte“, „Verbannte Lande“ und „Siptah“ springen direkt dorthin.
+
+Bedienung: **Mausrad** zoomt in großen Stufen, **Ziehen** verschiebt, **rechte Maustaste ziehen** vergrößert den aufgezogenen Ausschnitt, **Strg + Ziehen** dreht die Karte („Norden oben“ stellt sie zurück). Herausgezoomt werden nahe beieinanderliegende Elemente zu **Gruppen mit Anzahl** zusammengefasst, eingefärbt nach dem wichtigsten Inhalt (rot vor gelb vor grau); ein Klick auf eine Gruppe zoomt hinein, bis sie zerfällt. **Randpfeile** zeigen auf Mod-Inhalte außerhalb des Ausschnitts, ein Klick springt hin. Die **Fundstellen-Liste** führt alle Stellen mit Mod-Inhalten auf, der Haken **„Nur Mod-Inhalte“** blendet alles andere aus. Ein Klick auf ein Gebäude zeigt Besitzer, Bauteile und Position; eine einzelne Ebene lässt sich als Grundriss hervorheben. Die Formen sind vereinfacht, da sie nur aus Bauteiltyp, Lage und Drehung abgeleitet werden.
 
 Items erscheinen überall mit Namen, auf Deutsch, wenn das Spiel eine Übersetzung hat, sonst auf Englisch. Items aus Mods, deren Datei nicht angegeben ist, bleiben Nummern.
 
-Die Pfade merkt sich das Programm für den nächsten Start. Spielordner und Oodle-DLL werden automatisch gesucht und lassen sich unter „Einstellungen“ auch selbst angeben.
+Die Oberfläche gibt es auf **Englisch** (Standard) und **Deutsch**, umschaltbar unter „Einstellungen“; die Item-Namen kommen dann aus der passenden Sprachdatei des Spiels. Die Pfade merkt sich das Programm für den nächsten Start. Spielordner und Oodle-DLL werden automatisch gesucht und lassen sich unter „Einstellungen“ auch selbst angeben.
 
 ## Eingabeaufforderung
 
@@ -38,9 +40,10 @@ ConanModCheck-cli --db game.db --mod <Mod> [--mod <Mod> ...] [--out bericht.txt]
 
 Ohne `--mod` zeigt der Bericht nur die Übersicht aller Mod-Ordner im Spielstand.
 
-- `--besitz`: Statt des Berichts den Baum „Wer hat was“ ausgeben.
-- `--suche <Text>`: Wie `--besitz`, aber nur Items, deren Name den Text enthält.
-- `--nur-mods`: Wie `--besitz`, aber nur Items aus Mods.
+- `--lang en|de`: Sprache aller Ausgaben, Standard Englisch.
+- `--besitz` (auch `--owners`): Statt des Berichts den Baum „Wer hat was“ ausgeben.
+- `--suche <Text>` (auch `--search`): Wie `--besitz`, aber nur Items, deren Name den Text enthält.
+- `--nur-mods` (auch `--mods-only`): Wie `--besitz`, aber nur Items aus Mods.
 
 ## Reste ohne Besitzer
 
@@ -102,4 +105,4 @@ dotnet publish ConanModCheck.csproj -c Release -o dist
 dotnet publish Gui/ConanModCheck.Gui.csproj -c Release -o dist
 ```
 
-Das ergibt `dist/ConanModCheck-cli.exe` und `dist/ConanModCheck.exe`. Das Programm-Icon entsteht aus `tools/MakeIcon.cs` (`dotnet run --file tools/MakeIcon.cs`). Beide sind einzelne Dateien, die ohne installiertes .NET laufen. Die Oberfläche (`Gui/`) nutzt die Quelltexte aus dem Hauptordner mit.
+Das ergibt `dist/ConanModCheck-cli.exe` und `dist/ConanModCheck.exe`. Das Programm-Icon entsteht aus `tools/MakeIcon.cs` (`dotnet run --file tools/MakeIcon.cs`). Beide sind einzelne Dateien, die ohne installiertes .NET laufen. Die Oberfläche (`Gui/`) nutzt die Quelltexte aus dem Hauptordner mit. Alle Texte laufen über `L.T(…)`/`L.F(…)`; die englischen Fassungen stehen in `LangEn.cs` (Schlüssel ist der deutsche Text).

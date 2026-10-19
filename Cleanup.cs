@@ -44,12 +44,12 @@ sealed class Cleanup
                 if (modPieces == 0) continue;
                 if (modPieces < pieces.Count)
                 {
-                    plan.Skipped.Add($"Gebäude {id} ({save.OwnerName(save.BuildingOwner.GetValueOrDefault(id))}{Where(save, id)}): "
-                        + $"{modPieces} von {pieces.Count} Bauteilen aus {mod.Name}. Gemischte Gebäude bitte im Spiel abreißen oder umbauen.");
+                    plan.Skipped.Add(L.F("Gebäude {0} ({1}{2}): {3} von {4} Bauteilen aus {5}. Gemischte Gebäude bitte im Spiel abreißen oder umbauen.",
+                        id, save.OwnerName(save.BuildingOwner.GetValueOrDefault(id)), Where(save, id), modPieces, pieces.Count, mod.Name));
                     continue;
                 }
                 if (save.Objects.TryGetValue(id, out var o) && removed.Add(id))
-                    plan.Objects.Add((o, $"Gebäude aus {mod.Name}, {pieces.Count} Bauteile"));
+                    plan.Objects.Add((o, L.F("Gebäude aus {0}, {1} Bauteile", mod.Name, pieces.Count)));
             }
 
             // Platzierte Objekte, NPCs und Mod-Steuerung
@@ -60,12 +60,12 @@ sealed class Cleanup
                 int keep = game == null ? inv.Count : inv.Count(i => !newIds.Contains(i.TemplateId));
                 if (keep > 0 && !includeContents)
                 {
-                    plan.Skipped.Add($"{SaveGame.ShortClass(o.Class)} (ID {o.Id}{Where(save, o.Id)}) enthält {keep} Items, die nicht aus den entfernten Mods stammen. "
-                        + "Bitte erst ausräumen oder mit --include-contents mit entfernen.");
+                    plan.Skipped.Add(L.F("{0} (ID {1}{2}) enthält {3} Items, die nicht aus den entfernten Mods stammen. Bitte erst ausräumen oder Mod-Behälter samt Inhalt entfernen lassen (Konsole: --include-contents).",
+                        SaveGame.ShortClass(o.Class), o.Id, Where(save, o.Id), keep));
                     continue;
                 }
                 removed.Add(o.Id);
-                plan.Objects.Add((o, ModPaths.IsController(o.Class) ? $"Mod-Steuerung von {mod.Name}" : $"Objekt aus {mod.Name}"));
+                plan.Objects.Add((o, ModPaths.IsController(o.Class) ? L.F("Mod-Steuerung von {0}", mod.Name) : L.F("Objekt aus {0}", mod.Name)));
             }
 
             plan.Buffs.AddRange(save.Buffs.Where(b => ModPaths.BelongsTo(mod, b.Path)));
@@ -93,49 +93,49 @@ sealed class Cleanup
     public void Preview(TextWriter w, ItemNames? names = null)
     {
         names ??= ItemNames.Empty;
-        Line(w, "Vorschau der Bereinigung");
-        if (IsEmpty) w.WriteLine("Es gibt nichts zu entfernen.");
+        Line(w, L.T("Vorschau der Bereinigung"));
+        if (IsEmpty) w.WriteLine(L.T("Es gibt nichts zu entfernen."));
 
         if (Objects.Count > 0)
         {
-            w.WriteLine($"Objekte, die samt Inhalt entfernt werden ({Objects.Count}):");
+            w.WriteLine(L.F("Objekte, die samt Inhalt entfernt werden ({0}):", Objects.Count));
             foreach (var (o, reason) in Objects.OrderBy(x => x.Reason).ThenBy(x => x.Object.Id))
             {
                 int inv = _save.ItemsByOwner.GetValueOrDefault(o.Id)?.Count ?? 0;
-                w.WriteLine($"  {SaveGame.ShortClass(o.Class)} (ID {o.Id}) – {reason}" + (inv > 0 ? $", {inv} Items darin" : ""));
+                w.WriteLine($"  {SaveGame.ShortClass(o.Class)} (ID {o.Id}) – {reason}" + (inv > 0 ? L.F(", {0} Items darin", inv) : ""));
             }
             w.WriteLine();
         }
         if (Items.Count > 0)
         {
-            w.WriteLine($"Einzelne Mod-Items und erlernte Mod-Rezepte/-Talente ({Items.Count}):");
+            w.WriteLine(L.F("Einzelne Mod-Items und erlernte Mod-Rezepte/-Talente ({0}):", Items.Count));
             foreach (var g in Items.GroupBy(i => i.OwnerId))
                 w.WriteLine($"  {_save.DescribeInventoryOwner(g.Key)}: {string.Join(", ", g.Select(i => i.TemplateId).Order().Select(names.Label))}");
             w.WriteLine();
         }
         if (Buffs.Count > 0)
         {
-            w.WriteLine($"Aktive Effekte ({Buffs.Count}):");
+            w.WriteLine(L.F("Aktive Effekte ({0}):", Buffs.Count));
             foreach (var b in Buffs) w.WriteLine($"  {_save.OwnerName(b.CharId)}: {SaveGame.ShortClass(b.Path)}");
             w.WriteLine();
         }
         if (Orphans != null)
         {
             if (Orphans.Items.Count > 0)
-                w.WriteLine($"Reste ohne Besitzer: {Orphans.Items.Count} Items in {Orphans.Items.Select(i => i.OwnerId).Distinct().Count()} Behältern, die es nicht mehr gibt.");
+                w.WriteLine(L.F("Reste ohne Besitzer: {0} Items in {1} Behältern, die es nicht mehr gibt.", Orphans.Items.Count, Orphans.Items.Select(i => i.OwnerId).Distinct().Count()));
             if (Orphans.ModControllerIds.Count > 0)
-                w.WriteLine($"Reste ohne Besitzer: {Orphans.ModControllerIds.Count} Einträge der Mod-Steuerung ohne Objekt.");
+                w.WriteLine(L.F("Reste ohne Besitzer: {0} Einträge der Mod-Steuerung ohne Objekt.", Orphans.ModControllerIds.Count));
             w.WriteLine();
         }
         if (Skipped.Count > 0)
         {
-            w.WriteLine("Bleibt stehen:");
+            w.WriteLine(L.T("Bleibt stehen:"));
             foreach (var s in Skipped) w.WriteLine($"  » {s}");
             w.WriteLine();
         }
         if (Objects.Count > 0 || Items.Count > 0 || Buffs.Count > 0)
         {
-            w.WriteLine("Hinweis: Daten anderer Objekte, die nur auf die Mod verweisen (z. B. Einstellungen in Eigenschaften), werden nicht angefasst.");
+            w.WriteLine(L.T("Hinweis: Daten anderer Objekte, die nur auf die Mod verweisen (z. B. Einstellungen in Eigenschaften), werden nicht angefasst."));
             w.WriteLine();
         }
     }
@@ -151,7 +151,7 @@ sealed class Cleanup
         try { Exec(db, "BEGIN EXCLUSIVE"); Exec(db, "ROLLBACK"); }
         catch (SqliteException)
         {
-            throw new InvalidOperationException("Die Datenbank ist gerade in Benutzung. Bitte den Server stoppen und es erneut versuchen.");
+            throw new InvalidOperationException(L.T("Die Datenbank ist gerade in Benutzung. Bitte den Server stoppen und es erneut versuchen."));
         }
 
         var backup = BackupPath(dbPath);
@@ -162,7 +162,7 @@ sealed class Cleanup
             // Die Sicherung soll eine einzelne, eigenständige Datei sein
             Exec(target, "PRAGMA journal_mode = DELETE");
         }
-        w.WriteLine($"Sicherungskopie: {backup}");
+        w.WriteLine(L.F("Sicherungskopie: {0}", backup));
 
         var tables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         using (var cmd = db.CreateCommand())
@@ -231,8 +231,8 @@ sealed class Cleanup
         }
 
         w.WriteLine();
-        w.WriteLine("Entfernte Zeilen je Tabelle:");
-        if (counts.Count == 0) w.WriteLine("  keine");
+        w.WriteLine(L.T("Entfernte Zeilen je Tabelle:"));
+        if (counts.Count == 0) w.WriteLine("  " + L.T("keine"));
         foreach (var (t, n) in counts) w.WriteLine($"  {t,-20} {n,6}");
 
         using (var cmd = db.CreateCommand())
@@ -241,8 +241,8 @@ sealed class Cleanup
             var result = cmd.ExecuteScalar() as string;
             w.WriteLine();
             w.WriteLine(result == "ok"
-                ? "Prüfung der Datenbank: in Ordnung."
-                : $"Prüfung der Datenbank meldet Probleme: {result}. Im Zweifel die Sicherungskopie zurückspielen.");
+                ? L.T("Prüfung der Datenbank: in Ordnung.")
+                : L.F("Prüfung der Datenbank meldet Probleme: {0}. Im Zweifel die Sicherungskopie zurückspielen.", result));
         }
 
         // Der Spielstand läuft im WAL-Modus: Änderungen landen erst in game.db-wal. Damit die

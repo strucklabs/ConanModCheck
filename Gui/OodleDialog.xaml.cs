@@ -11,10 +11,11 @@ public partial class OodleDialog : Window
     public OodleDialog(string dllPath, string? targetDir)
     {
         InitializeComponent();
-        GameText.Text = OodleLocation.GameName(dllPath) ?? "Unbekannter Ordner";
+        UiTranslator.Apply(this);
+        GameText.Text = OodleLocation.GameName(dllPath) ?? L.T("Unbekannter Ordner");
         PathText.Text = dllPath;
         if (targetDir != null)
-            CopyHint.Text += $"\nZiel: {targetDir}";
+            CopyHint.Text += "\n" + L.F("Ziel: {0}", targetDir);
     }
 
     void Copy_Click(object sender, RoutedEventArgs e)

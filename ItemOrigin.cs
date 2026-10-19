@@ -20,7 +20,7 @@ sealed class ItemOrigin
     public string? ModTag(long id)
     {
         if (_modOf.TryGetValue(id, out var mod)) return mod;
-        if (_gameIds != null && !_gameIds.Contains(id)) return "Mod, Datei nicht geladen";
+        if (_gameIds != null && !_gameIds.Contains(id)) return L.T("Mod, Datei nicht geladen");
         return null;
     }
 

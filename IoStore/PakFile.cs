@@ -27,13 +27,13 @@ sealed class PakFile : IDisposable
             int tailLength = (int)Math.Min(size, 512);
             var tail = ReadAt(size - tailLength, tailLength);
             int m = LastIndexOf(tail, Magic);
-            if (m < 0) throw new InvalidDataException("Kein Pak-Archiv.");
+            if (m < 0) throw new InvalidDataException(L.T("Kein Pak-Archiv."));
 
             int version = BinaryPrimitives.ReadInt32LittleEndian(tail.AsSpan(m + 4));
             long indexOffset = BinaryPrimitives.ReadInt64LittleEndian(tail.AsSpan(m + 8));
             long indexSize = BinaryPrimitives.ReadInt64LittleEndian(tail.AsSpan(m + 16));
-            if (version < 10) throw new NotSupportedException($"Pak-Version {version} wird nicht unterstützt.");
-            if (tail[m - 1] != 0) throw new NotSupportedException("Das Pak-Verzeichnis ist verschlüsselt.");
+            if (version < 10) throw new NotSupportedException(L.F("Pak-Version {0} wird nicht unterstützt.", version));
+            if (tail[m - 1] != 0) throw new NotSupportedException(L.T("Das Pak-Verzeichnis ist verschlüsselt."));
             if (indexSize <= 0) { _encodedEntries = []; _methods = ["None"]; return; }
 
             // Namen der Kompressionsverfahren folgen auf Magic, Version, Offset, Größe und SHA1
@@ -50,7 +50,7 @@ sealed class PakFile : IDisposable
             string mount = FString(index, ref p);
             p += 4 + 8; // Anzahl Einträge, PathHashSeed
             if (ReadI32(index, ref p) != 0) p += 8 + 8 + 20; // Pfad-Hash-Index
-            if (ReadI32(index, ref p) == 0) throw new NotSupportedException("Pak ohne vollständiges Verzeichnis.");
+            if (ReadI32(index, ref p) == 0) throw new NotSupportedException(L.T("Pak ohne vollständiges Verzeichnis."));
             long dirOffset = BinaryPrimitives.ReadInt64LittleEndian(index.AsSpan(p));
             long dirSize = BinaryPrimitives.ReadInt64LittleEndian(index.AsSpan(p + 8));
             p += 16 + 20;
@@ -95,7 +95,7 @@ sealed class PakFile : IDisposable
         int blockCount = (int)((bits >> 6) & 0xFFFF);
         bool encrypted = ((bits >> 22) & 1) != 0;
         int method = (int)((bits >> 23) & 0x3F);
-        if (encrypted) throw new NotSupportedException("Verschlüsselte Datei im Pak.");
+        if (encrypted) throw new NotSupportedException(L.T("Verschlüsselte Datei im Pak."));
 
         long Next(bool fits32)
         {
@@ -118,7 +118,7 @@ sealed class PakFile : IDisposable
 
         string name = method < _methods.Length ? _methods[method] : "?";
         if (!name.Equals("Oodle", StringComparison.OrdinalIgnoreCase))
-            throw new NotSupportedException($"Kompression \"{name}\" wird nicht unterstützt.");
+            throw new NotSupportedException(L.F("Kompression „{0}“ wird nicht unterstützt.", name));
 
         var result = new byte[uncompressed];
         int written = 0;

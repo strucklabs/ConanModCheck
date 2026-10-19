@@ -28,7 +28,7 @@ sealed class IoStoreContainer : IDisposable
         TocPath = tocPath;
         var d = File.ReadAllBytes(tocPath);
         if (d.Length < 0x90 || Encoding.ASCII.GetString(d, 0, 16) != "-==--==--==--==-")
-            throw new InvalidDataException("Keine gültige .utoc-Datei.");
+            throw new InvalidDataException(L.T("Keine gültige .utoc-Datei."));
 
         byte version = d[16];
         uint headerSize = U32(d, 0x14), entryCount = U32(d, 0x18);
@@ -40,7 +40,7 @@ sealed class IoStoreContainer : IDisposable
         uint seedCount = U32(d, 0x54), noHashCount = U32(d, 0x60);
 
         if ((flags & FlagEncrypted) != 0)
-            throw new NotSupportedException("Der Container ist verschlüsselt.");
+            throw new NotSupportedException(L.T("Der Container ist verschlüsselt."));
 
         int o = (int)headerSize;
         o += 12 * (int)entryCount; // Chunk-IDs, werden nicht gebraucht
@@ -135,7 +135,7 @@ sealed class IoStoreContainer : IDisposable
             string method = _methods[blk.Method];
             if (method == "None") plain = raw;
             else if (method.Equals("Oodle", StringComparison.OrdinalIgnoreCase)) plain = Oodle.Decompress(raw, blk.UncompressedSize);
-            else throw new NotSupportedException($"Kompression \"{method}\" wird nicht unterstützt.");
+            else throw new NotSupportedException(L.F("Kompression „{0}“ wird nicht unterstützt.", method));
 
             int start = (int)Math.Max(0, offset - pos);
             int count = Math.Min(blk.UncompressedSize - start, (int)length - written);

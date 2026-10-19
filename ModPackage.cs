@@ -68,7 +68,7 @@ sealed class ModPackage : IDisposable
     /// </summary>
     public static ModPackage FromFolder(string folder)
     {
-        var mod = new ModPackage(folder, "nur Ordnername, ohne Mod-Datei", null);
+        var mod = new ModPackage(folder, L.T("nur Ordnername, ohne Mod-Datei"), null);
         mod.ModFolders.Add(folder);
         return mod;
     }
@@ -148,7 +148,7 @@ sealed class ModPackage : IDisposable
             else if (input.EndsWith(".utoc", StringComparison.OrdinalIgnoreCase)) result.Add((input, input));
             else if (input.EndsWith(".pak", StringComparison.OrdinalIgnoreCase) || input.EndsWith(".ucas", StringComparison.OrdinalIgnoreCase))
                 result.Add((Path.ChangeExtension(input, ".utoc"), input));
-            else throw new FileNotFoundException($"Nicht gefunden oder unbekannter Dateityp: {input}");
+            else throw new FileNotFoundException(L.F("Nicht gefunden oder unbekannter Dateityp: {0}", input));
         }
         return result;
     }

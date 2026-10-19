@@ -57,6 +57,11 @@
             <Expander Header="Einstellungen" DockPanel.Dock="Top" Margin="0,12,0,0">
                 <Border Margin="0,6,0,0" Padding="10" Background="#F5F5F3" BorderBrush="#DDDAD2" BorderThickness="1" CornerRadius="4">
                 <StackPanel>
+                    <TextBlock Text="Sprache / Language" />
+                    <ComboBox x:Name="LanguageBox" Margin="0,2,0,8" SelectionChanged="Language_Changed">
+                        <ComboBoxItem Content="English" />
+                        <ComboBoxItem Content="Deutsch" />
+                    </ComboBox>
                     <TextBlock Text="Conan Exiles-Ordner (leer = über Steam suchen)" />
                     <DockPanel Margin="0,2,0,8">
                         <Button DockPanel.Dock="Right" Content="…" Padding="8,2" Margin="4,0,0,0" Click="ChooseGame_Click" />
@@ -101,7 +106,11 @@
                             <DataGridTextColumn Header="Mod-Ordner" Binding="{Binding Folder}" Width="*" IsReadOnly="True" />
                             <DataGridTextColumn Header="Mod-Controller" Binding="{Binding ControllerMark}" Width="95" IsReadOnly="True">
                                 <DataGridTextColumn.ElementStyle>
-                                    <Style TargetType="TextBlock"><Setter Property="HorizontalAlignment" Value="Center" /></Style>
+                                    <!-- Rechtsbündig, damit die Häkchen auch bei "2 ✓" untereinander stehen -->
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="HorizontalAlignment" Value="Right" />
+                                        <Setter Property="Margin" Value="0,0,28,0" />
+                                    </Style>
                                 </DataGridTextColumn.ElementStyle>
                             </DataGridTextColumn>
                             <DataGridTextColumn Header="Objekte" Binding="{Binding Objects}" Width="70" IsReadOnly="True" />
@@ -157,20 +166,21 @@
                 <Grid Margin="8">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="250" />
+                        <ColumnDefinition Width="270" />
                     </Grid.ColumnDefinitions>
                     <Border BorderBrush="#CCC" BorderThickness="1">
                         <local:MapView x:Name="Map" />
                     </Border>
-                    <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" Margin="10,0,0,0">
-                        <StackPanel>
+                    <DockPanel Grid.Column="1" Margin="10,0,0,0">
+                        <StackPanel DockPanel.Dock="Top">
                             <WrapPanel>
                                 <Button Content="Ganze Karte" Margin="0,0,6,6" Click="MapFit_Click" />
-                                <Button Content="Heranzoomen" Margin="0,0,6,6" Click="MapZoom_Click" />
                                 <Button Content="Verbannte Lande" Margin="0,0,6,6" Tag="exiled" Click="MapIsland_Click" />
                                 <Button Content="Siptah" Margin="0,0,6,6" Tag="siptah" Click="MapIsland_Click" />
+                                <Button x:Name="ResetRotationButton" Content="Norden oben" Margin="0,0,6,6" Visibility="Collapsed" Click="ResetRotation_Click" />
                             </WrapPanel>
-                            <TextBlock Style="{StaticResource Hint}" Text="Mausrad: zoomen · Ziehen: verschieben · Klick: Gebäude oder Objekt auswählen" />
+                            <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,0"
+                                       Text="Mausrad: zoomen · Ziehen: verschieben · Rechte Maustaste ziehen: Ausschnitt vergrößern · Strg + Ziehen: drehen · Klick auf Gruppe oder Randpfeil: hinspringen" />
 
                             <GroupBox Header="Auswahl" Margin="0,10,0,0">
                                 <StackPanel>
@@ -186,45 +196,36 @@
 
                             <GroupBox Header="Anzeigen">
                                 <StackPanel>
-                                    <CheckBox x:Name="ShowPlaceablesBox" Content="Platzierte Objekte" IsChecked="True" Checked="MapFilter_Changed" Unchecked="MapFilter_Changed" />
+                                    <CheckBox x:Name="OnlyModsBox" Content="Nur Mod-Inhalte" FontWeight="SemiBold" Checked="MapFilter_Changed" Unchecked="MapFilter_Changed" />
+                                    <CheckBox x:Name="ShowPlaceablesBox" Content="Platzierte Objekte" IsChecked="True" Margin="0,4,0,0" Checked="MapFilter_Changed" Unchecked="MapFilter_Changed" />
                                     <CheckBox x:Name="ShowFiguresBox" Content="Thralls und Tiere" IsChecked="True" Margin="0,4,0,0" Checked="MapFilter_Changed" Unchecked="MapFilter_Changed" />
                                     <CheckBox x:Name="ShowPlayersBox" Content="Spieler" IsChecked="True" Margin="0,4,0,0" Checked="MapFilter_Changed" Unchecked="MapFilter_Changed" />
-                                    <CheckBox x:Name="ShowMapImageBox" Content="Spielkarte im Hintergrund" IsChecked="True" Margin="0,4,0,0" Checked="MapFilter_Changed" Unchecked="MapFilter_Changed" />
-                                    <ToggleButton x:Name="AlignMapButton" Content="Karte ausrichten" HorizontalAlignment="Left" Margin="0,8,0,0" Padding="10,3"
-                                                  Checked="AlignMap_Changed" Unchecked="AlignMap_Changed" />
-                                    <TextBlock x:Name="AlignHint" Style="{StaticResource Hint}" Visibility="Collapsed"
-                                               Text="Kartenbild mit der Maus verschieben, Mausrad: Größe, Strg + Mausrad: Drehung. Oder Werte unten eintragen. Alles wird gespeichert." />
-                                    <Grid x:Name="AlignPanel" Visibility="Collapsed" Margin="0,8,0,0">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-                                        <TextBlock Text="Insel" VerticalAlignment="Center" Margin="0,0,8,4" />
-                                        <ComboBox x:Name="AlignIslandBox" Grid.Column="1" Margin="0,0,0,4" SelectionChanged="AlignIsland_Changed" />
-                                        <TextBlock Grid.Row="1" Text="Versatz X" VerticalAlignment="Center" Margin="0,0,8,4" />
-                                        <TextBox x:Name="AlignX" Grid.Row="1" Grid.Column="1" Margin="0,0,0,4" LostFocus="AlignValue_Commit" KeyDown="AlignValue_KeyDown" GotKeyboardFocus="AlignValue_Focus" PreviewMouseLeftButtonDown="AlignValue_MouseDown" />
-                                        <TextBlock Grid.Row="2" Text="Versatz Y" VerticalAlignment="Center" Margin="0,0,8,4" />
-                                        <TextBox x:Name="AlignY" Grid.Row="2" Grid.Column="1" Margin="0,0,0,4" LostFocus="AlignValue_Commit" KeyDown="AlignValue_KeyDown" GotKeyboardFocus="AlignValue_Focus" PreviewMouseLeftButtonDown="AlignValue_MouseDown" />
-                                        <TextBlock Grid.Row="3" Text="Maßstab %" VerticalAlignment="Center" Margin="0,0,8,4" />
-                                        <TextBox x:Name="AlignScale" Grid.Row="3" Grid.Column="1" Margin="0,0,0,4" LostFocus="AlignValue_Commit" KeyDown="AlignValue_KeyDown" GotKeyboardFocus="AlignValue_Focus" PreviewMouseLeftButtonDown="AlignValue_MouseDown" />
-                                        <TextBlock Grid.Row="4" Text="Drehung °" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                        <TextBox x:Name="AlignAngle" Grid.Row="4" Grid.Column="1" LostFocus="AlignValue_Commit" KeyDown="AlignValue_KeyDown" GotKeyboardFocus="AlignValue_Focus" PreviewMouseLeftButtonDown="AlignValue_MouseDown" />
-                                    </Grid>
-                                    <Button x:Name="ResetAlignButton" Content="Ausrichtung zurücksetzen" HorizontalAlignment="Left" Margin="0,6,0,0"
-                                            Visibility="Collapsed" Click="ResetAlign_Click" />
-                                    <TextBlock x:Name="MapImageStatus" Style="{StaticResource Hint}" Visibility="Collapsed" />
                                 </StackPanel>
                             </GroupBox>
-
-                            <GroupBox Header="Legende">
-                                <StackPanel x:Name="LegendPanel" />
-                            </GroupBox>
                         </StackPanel>
-                    </ScrollViewer>
+
+                        <Expander DockPanel.Dock="Bottom" Header="Legende" Margin="0,6,0,0">
+                            <StackPanel x:Name="LegendPanel" Margin="0,4,0,0" />
+                        </Expander>
+
+                        <GroupBox Header="Fundstellen von Mod-Inhalten">
+                            <DockPanel>
+                                <TextBlock x:Name="FindingsHint" DockPanel.Dock="Top" Style="{StaticResource Hint}" Margin="0,0,0,4"
+                                           Text="Klick springt zur Stelle." />
+                                <ListBox x:Name="FindingsList" SelectionChanged="Findings_SelectionChanged" BorderThickness="0"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal" Margin="0,1">
+                                                <Ellipse Width="9" Height="9" Fill="{Binding Brush}" Margin="0,0,6,0" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding Text}" TextWrapping="Wrap" MaxWidth="215" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </DockPanel>
+                        </GroupBox>
+                    </DockPanel>
                 </Grid>
             </TabItem>
 

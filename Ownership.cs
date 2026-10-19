@@ -34,7 +34,7 @@ sealed class OwnNode(OwnKind kind, string text)
 sealed class Ownership
 {
     // Tausenderpunkte wie im Deutschen, unabhängig von den Systemeinstellungen
-    static readonly NumberFormatInfo Numbers = new() { NumberGroupSeparator = ".", NumberDecimalSeparator = "," };
+    static NumberFormatInfo Numbers => L.Numbers;
 
     readonly SaveGame _save;
     readonly ItemNames _names;
@@ -75,10 +75,10 @@ sealed class Ownership
 
         foreach (var (guildId, guildName) in _save.Guilds.OrderBy(g => g.Value))
         {
-            var clan = new OwnNode(OwnKind.Clan, $"Clan „{guildName}“");
+            var clan = new OwnNode(OwnKind.Clan, L.F("Clan „{0}“", guildName));
             foreach (var (charId, _) in _save.Characters.Where(c => _save.CharacterGuild.GetValueOrDefault(c.Key) == guildId).OrderBy(c => c.Value))
                 Add(clan, PlayerNode(charId, shownFigures));
-            Add(clan, PossessionsNode("Clan-Besitz", guildId, shownFigures));
+            Add(clan, PossessionsNode(L.T("Clan-Besitz"), guildId, shownFigures));
             Finish(clan);
             Add(roots, clan);
         }
@@ -86,7 +86,7 @@ sealed class Ownership
         var loners = _save.Characters.Where(c => !_save.CharacterGuild.TryGetValue(c.Key, out var g) || !_save.Guilds.ContainsKey(g)).ToList();
         if (loners.Count > 0)
         {
-            var group = new OwnNode(OwnKind.Group, "Spieler ohne Clan");
+            var group = new OwnNode(OwnKind.Group, L.T("Spieler ohne Clan"));
             foreach (var (charId, _) in loners.OrderBy(c => c.Value))
                 Add(group, PlayerNode(charId, shownFigures));
             Finish(group);
@@ -95,7 +95,7 @@ sealed class Ownership
 
         // Objekte mit Inhalt, die niemandem gehören (Besitzer 0, -1 oder unbekannt)
         var known = new HashSet<long>(_save.Characters.Keys.Concat(_save.Guilds.Keys));
-        var unowned = new OwnNode(OwnKind.Group, "Ohne Besitzer");
+        var unowned = new OwnNode(OwnKind.Group, L.T("Ohne Besitzer"));
         foreach (var o in Containers(id => !known.Contains(id)))
             Add(unowned, ContainerNode(o));
         Finish(unowned);
@@ -108,12 +108,12 @@ sealed class Ownership
     {
         var info = _save.CharacterInfos.GetValueOrDefault(charId);
         var details = new List<string>();
-        if (info?.Level > 0) details.Add($"Stufe {info.Level}");
-        if (info?.LastOnline is { } last) details.Add($"zuletzt online {last:dd.MM.yyyy}");
-        var node = new OwnNode(OwnKind.Player, $"Spieler „{_save.Characters[charId]}“" + (details.Count > 0 ? $" – {string.Join(", ", details)}" : ""));
+        if (info?.Level > 0) details.Add(L.F("Stufe {0}", info.Level));
+        if (info?.LastOnline is { } last) details.Add(L.F("zuletzt online {0:dd.MM.yyyy}", last));
+        var node = new OwnNode(OwnKind.Player, L.F("Spieler „{0}“", _save.Characters[charId]) + (details.Count > 0 ? $" – {string.Join(", ", details)}" : ""));
 
         foreach (var section in InventorySections(charId, isCharacter: true)) Add(node, section);
-        var own = PossessionsNode("Eigener Besitz", charId, shownFigures);
+        var own = PossessionsNode(L.T("Eigener Besitz"), charId, shownFigures);
         foreach (var c in own.Children) Add(node, c);
         Finish(node);
         return node;
@@ -132,7 +132,7 @@ sealed class Ownership
             .ToList();
         if (figures.Count > 0)
         {
-            var group = new OwnNode(OwnKind.Group, "Thralls und Tiere");
+            var group = new OwnNode(OwnKind.Group, L.T("Thralls und Tiere"));
             foreach (var f in figures)
             {
                 var fn = new OwnNode(OwnKind.Figure, FigureName(f)) { Location = f };
@@ -145,7 +145,7 @@ sealed class Ownership
             Add(node, group);
         }
 
-        var containers = new OwnNode(OwnKind.Group, "Behälter und Stationen");
+        var containers = new OwnNode(OwnKind.Group, L.T("Behälter und Stationen"));
         foreach (var o in Containers(id => id == ownerId))
             Add(containers, ContainerNode(o));
         containers.Children.Sort((a, b) => b.ItemCount.CompareTo(a.ItemCount));
@@ -165,9 +165,9 @@ sealed class Ownership
                 .ToList();
             if (buildings.Count > 0)
             {
-                var bn = new OwnNode(OwnKind.Buildings, $"Gebäude: {buildings.Count} mit {buildings.Sum(b => b.Count).ToString("N0", Numbers)} Bauteilen");
+                var bn = new OwnNode(OwnKind.Buildings, L.F("Gebäude: {0} mit {1:N0} Bauteilen", buildings.Count, buildings.Sum(b => b.Count)));
                 foreach (var b in buildings)
-                    bn.Children.Add(new OwnNode(OwnKind.Building, $"Gebäude {b.Id} – {b.Count} Bauteile")
+                    bn.Children.Add(new OwnNode(OwnKind.Building, L.F("Gebäude {0} – {1} Bauteile", b.Id, b.Count))
                     { Location = _save.Objects.GetValueOrDefault(b.Id) });
                 node.Children.Add(bn);
             }
@@ -220,18 +220,18 @@ sealed class Ownership
 
     static string SectionName(long invType, bool isCharacter, bool clanStore)
     {
-        if (clanStore) return "Clan-Lager";
+        if (clanStore) return L.T("Clan-Lager");
         if (isCharacter)
-            return invType switch { 0 => "Inventar", 1 => "Ausrüstung", 2 => "Schnellleiste", _ => $"Fach {invType}" };
-        return invType switch { 4 => "Inhalt", 0 => "Inventar", 1 => "Ausrüstung", _ => $"Fach {invType}" };
+            return invType switch { 0 => L.T("Inventar"), 1 => L.T("Ausrüstung"), 2 => L.T("Schnellleiste"), _ => L.F("Fach {0}", invType) };
+        return invType switch { 4 => L.T("Inhalt"), 0 => L.T("Inventar"), 1 => L.T("Ausrüstung"), _ => L.F("Fach {0}", invType) };
     }
 
     string FigureName(WorldObject o)
     {
         bool thrall = o.Class.Contains("Humanoid", StringComparison.OrdinalIgnoreCase);
-        var kind = thrall ? "Thrall" : "Tier";
+        var kind = thrall ? L.T("Thrall") : L.T("Tier");
         if (_save.FigureNames.TryGetValue(o.Id, out var n)) return $"{n} ({kind}, ID {o.Id})";
-        return thrall ? $"Thrall ohne Namen (ID {o.Id})" : $"{PrettyClass(o.Class)} (Tier, ID {o.Id})";
+        return thrall ? L.F("Thrall ohne Namen (ID {0})", o.Id) : $"{PrettyClass(o.Class)} ({kind}, ID {o.Id})";
     }
 
     /// <summary>"/Game/…/BP_PL_Chest_Large.BP_PL_Chest_Large_C" → "Chest Large"</summary>

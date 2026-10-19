@@ -16,8 +16,7 @@ static class Loader
             catch (Exception) { /* nächste versuchen */ }
         }
         if (Oodle.IsLoaded) log($"Oodle: {Oodle.LoadedFrom}");
-        else log("Keine Oodle-Bibliothek (oo2core_*_win64.dll) gefunden. Mod- und Spieldateien lassen sich ohne sie nicht lesen. "
-               + "Viele Spiele bringen sie mit; sie lässt sich angeben oder neben ConanModCheck.exe legen.");
+        else log(L.T("Keine Oodle-Bibliothek (oo2core_*_win64.dll) gefunden. Mod- und Spieldateien lassen sich ohne sie nicht lesen. Viele Spiele bringen sie mit; sie lässt sich angeben oder neben ConanModCheck.exe legen."));
         return Oodle.IsLoaded;
     }
 
@@ -27,12 +26,12 @@ static class Loader
         gameDir ??= GameData.FindGame(steamLibraries);
         if (gameDir == null || !GameData.IsGameDir(gameDir))
         {
-            log("Conan Exiles wurde nicht gefunden. Ohne Spieldateien sind die Item-Angaben ungenauer.");
+            log(L.T("Conan Exiles wurde nicht gefunden. Ohne Spieldateien sind die Item-Angaben ungenauer."));
             return null;
         }
-        log($"Spiel: {gameDir}");
+        log(L.F("Spiel: {0}", gameDir));
         var game = GameData.Load(gameDir, log);
-        log($"  {game.ItemIds.Count} Item- und {game.FeatIds.Count} Talent-IDs im Originalspiel");
+        log("  " + L.F("{0} Item- und {1} Talent-IDs im Originalspiel", game.ItemIds.Count, game.FeatIds.Count));
         return game;
     }
 
@@ -42,7 +41,7 @@ static class Loader
         var mods = new List<ModPackage>();
         var inputList = inputs.ToList();
         if (inputList.Count > 0 && !Oodle.IsLoaded)
-            log("Mod-Dateien werden übersprungen, weil Oodle fehlt.");
+            log(L.T("Mod-Dateien werden übersprungen, weil Oodle fehlt."));
         else
         {
             foreach (var (utoc, source) in ModPackage.Collect(inputList, tempDir))
@@ -53,7 +52,7 @@ static class Loader
                     mods.Add(mod);
                     log($"Mod: {mod.Name}");
                 }
-                catch (Exception ex) { log($"Mod konnte nicht gelesen werden: {source} ({ex.Message})"); }
+                catch (Exception ex) { log(L.F("Mod konnte nicht gelesen werden: {0} ({1})", source, ex.Message)); }
             }
         }
         foreach (var folder in folders)

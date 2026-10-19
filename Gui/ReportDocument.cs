@@ -52,15 +52,15 @@ static class ReportDocument
 
             if (trimmed.Length == 0) { hintIndent = -1; doc.Blocks.Add(Para(" ")); continue; }
 
-            if (trimmed.StartsWith('!') || trimmed.StartsWith("Vorsicht:"))
+            if (trimmed.StartsWith('!') || trimmed.StartsWith(L.T("Vorsicht:")))
             {
                 hintIndent = -1;
-                doc.Blocks.Add(Para(line, fg: WarnText, bg: WarnBack, bold: trimmed.StartsWith("Vorsicht:")));
+                doc.Blocks.Add(Para(line, fg: WarnText, bg: WarnBack, bold: trimmed.StartsWith(L.T("Vorsicht:"))));
                 continue;
             }
 
             // Ein Hinweis läuft über Folgezeilen mit gleicher Einrückung weiter, bis zur Leerzeile
-            if (trimmed.StartsWith("Hinweis:") || trimmed.StartsWith('»')) hintIndent = trimmed.StartsWith('»') ? -1 : indent;
+            if (trimmed.StartsWith(L.T("Hinweis:")) || trimmed.StartsWith('»')) hintIndent = trimmed.StartsWith('»') ? -1 : indent;
             else if (hintIndent >= 0 && indent != hintIndent) hintIndent = -1;
 
             bool hint = hintIndent >= 0 || trimmed.StartsWith('»');

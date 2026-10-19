@@ -214,15 +214,15 @@ sealed class SaveGame
     {
         if (Characters.TryGetValue(ownerId, out var c))
         {
-            var clan = CharacterGuild.TryGetValue(ownerId, out var g) && Guilds.TryGetValue(g, out var gn) ? $", Clan „{gn}“" : "";
-            return $"Spieler „{c}“{clan}";
+            var clan = CharacterGuild.TryGetValue(ownerId, out var g) && Guilds.TryGetValue(g, out var gn) ? ", " + L.F("Clan „{0}“", gn) : "";
+            return L.F("Spieler „{0}“", c) + clan;
         }
-        if (Guilds.TryGetValue(ownerId, out var guild)) return $"Clan „{guild}“";
+        if (Guilds.TryGetValue(ownerId, out var guild)) return L.F("Clan „{0}“", guild);
         return ownerId switch
         {
-            0 => "niemand (Besitzer 0)",
-            -1 => "niemand (Besitzer -1)",
-            _ => $"unbekannt (ID {ownerId})",
+            0 => L.T("niemand (Besitzer 0)"),
+            -1 => L.T("niemand (Besitzer -1)"),
+            _ => L.F("unbekannt (ID {0})", ownerId),
         };
     }
 
@@ -234,10 +234,10 @@ sealed class SaveGame
         {
             var who = BuildingOwner.TryGetValue(ownerId, out var b) ? OwnerName(b)
                     : FollowerOwner.TryGetValue(ownerId, out var f) ? OwnerName(f)
-                    : "ohne Besitzer";
-            return $"{ShortClass(o.Class)} (ID {ownerId}, {who}) bei {Coords(o)}";
+                    : L.T("ohne Besitzer");
+            return L.F("{0} (ID {1}, {2}) bei {3}", ShortClass(o.Class), ownerId, who, Coords(o));
         }
-        return $"unbekanntes Objekt (ID {ownerId})";
+        return L.F("unbekanntes Objekt (ID {0})", ownerId);
     }
 
     public static string Coords(WorldObject o) => $"X {o.X:0} / Y {o.Y:0} / Z {o.Z:0}";

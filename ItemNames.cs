@@ -3,8 +3,8 @@ using ConanModCheck.IoStore;
 namespace ConanModCheck;
 
 /// <summary>
-/// Übersetzt Item- und Talent-IDs in lesbare Namen: deutsch, wenn es eine Übersetzung gibt,
-/// sonst englisch, sonst bleibt es bei der Nummer.
+/// Übersetzt Item- und Talent-IDs in lesbare Namen, in der gewählten Sprache; fehlt sie, in der
+/// anderen, sonst bleibt es bei der Nummer.
 /// </summary>
 sealed class ItemNames
 {
@@ -39,8 +39,9 @@ sealed class ItemNames
         {
             if (!texts.TryGetValue(id, out var t)) continue;
             var key = (t.Namespace, t.Key);
-            foreach (var d in _german) if (d.TryGetValue(key, out var s) && s.Length > 0) return s;
-            foreach (var d in _english) if (d.TryGetValue(key, out var s) && s.Length > 0) return s;
+            var (first, second) = L.English ? (_english, _german) : (_german, _english);
+            foreach (var d in first) if (d.TryGetValue(key, out var s) && s.Length > 0) return s;
+            foreach (var d in second) if (d.TryGetValue(key, out var s) && s.Length > 0) return s;
             if (t.Source.Length > 0) return t.Source;
         }
         return null;

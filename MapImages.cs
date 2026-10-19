@@ -1,18 +1,22 @@
 namespace ConanModCheck;
 
-/// <summary>Ein Kartenbild aus dem Spiel und die Weltfläche, die es abdeckt (quadratisch).</summary>
-sealed record MapImageInfo(string Key, string Title, string TexturePath, double CenterX, double CenterY, double Size);
+/// <summary>Eine Insel der Spielwelt und ihre ungefähre Fläche (quadratisch, Weltkoordinaten).</summary>
+sealed record MapImageInfo(string Key, string Title, double CenterX, double CenterY, double Size)
+{
+    /// <summary>Name in der gewählten Sprache.</summary>
+    public string Name => L.T(Title);
+}
 
 static class MapImages
 {
     /// <summary>
-    /// Bekannte Kartenbilder. Die Weltflächen sind aus Positionen im Spielstand abgeleitet
-    /// (Altäre, Schmieden, Basen) und nicht exakt; sie lassen sich in der Oberfläche nachjustieren.
+    /// Die Inseln in Conan Exiles Enhanced. Die Flächen sind aus Positionen im Spielstand abgeleitet
+    /// und dienen nur als Rückfall, wenn auf einer Insel nichts steht.
     /// </summary>
     public static readonly MapImageInfo[] All =
     [
-        new("exiled", "Verbannte Lande", "/Game/UI/Textures/GUIs/Map/T_FullscreenMap.uasset", 0, 0, 840_000),
-        new("siptah", "Siptah", "/Game/DLC/DLC_Siptah/UI/Map/T_Map_Siptah.uasset", 1_590_000, 65_000, 990_000),
+        new("exiled", "Verbannte Lande", 0, 0, 840_000),
+        new("siptah", "Siptah", 1_590_000, 65_000, 990_000),
     ];
 
     /// <summary>In Enhanced liegt Siptah in derselben Welt, weit östlich der Verbannten Lande.</summary>

@@ -30,8 +30,6 @@ sealed class GameData : IDisposable
 
     public byte[] Read(string gamePath) => _fileIndex[gamePath].Read(gamePath);
 
-    public byte[]? TryRead(string gamePath) => _fileIndex.TryGetValue(gamePath, out var c) ? c.Read(gamePath) : null;
-
     public static GameData Load(string gameDir, Action<string> log)
     {
         var game = new GameData(gameDir);
@@ -44,7 +42,7 @@ sealed class GameData : IDisposable
                 game._containers.Add(c);
                 foreach (var f in c.Files.Keys) game._fileIndex.TryAdd(f, c);
             }
-            catch (Exception ex) { log($"  Übersprungen: {Path.GetFileName(toc)} ({ex.Message})"); }
+            catch (Exception ex) { log("  " + L.F("Übersprungen: {0} ({1})", Path.GetFileName(toc), ex.Message)); }
         }
 
         foreach (var path in game._fileIndex.Keys.Where(p => p.EndsWith(".uasset", StringComparison.OrdinalIgnoreCase)))

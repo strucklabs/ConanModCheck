@@ -40,6 +40,7 @@ public partial class MainWindow : Window
         FolderGrid.ItemsSource = _rows;
         Map.SelectionChanged += Map_SelectionChanged;
         Map.ViewChanged += Map_ViewChanged;
+        Map.SectionChanged += RefreshSection;
 
         if (_settings.DbPath != null && File.Exists(_settings.DbPath)) SetDb(_settings.DbPath);
         foreach (var f in _settings.ModFiles.Where(f => File.Exists(f) || Directory.Exists(f))) _modFiles.Add(f);
@@ -241,7 +242,10 @@ public partial class MainWindow : Window
         RefreshResults();
         Map.RefreshColors();
         RefreshFindings();
+        RefreshSection();
+        UpdateMapInfo();
         if (CurrentItemFilter() == ItemFilter.SelectedMods) RefreshOwnership();
+        else RecomputeOwnershipMarks();
     }
 
     void IncludeContents_Changed(object sender, RoutedEventArgs e) => RefreshResults();
@@ -377,6 +381,27 @@ public partial class MainWindow : Window
         BuildLegend(buildings);
         RefreshFindings();
         UpdateMapInfo();
+        RefreshSection();
+    }
+
+    void RefreshSection()
+    {
+        if (Map.Section == null) { SectionPanel.Visibility = Visibility.Collapsed; return; }
+        SectionPanel.Visibility = Visibility.Visible;
+        SectionTitle.Text = L.F("Höhenschnitt von A nach B, {0:N0} lang", Map.SectionLength);
+        Section.SetItems(Map.SectionItems(), Map.SectionLength);
+    }
+
+    void CloseSection_Click(object sender, RoutedEventArgs e) => Map.Section = null;
+
+    void SectionDepth_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        // Feuert schon beim Aufbau der Oberfläche, bevor alle Regler existieren
+        if (!IsLoaded) return;
+        SectionFrontText.Text = SectionFrontSlider.Value.ToString("N0", L.Numbers);
+        SectionBackText.Text = SectionBackSlider.Value.ToString("N0", L.Numbers);
+        Map.SectionFront = SectionFrontSlider.Value;
+        Map.SectionBack = SectionBackSlider.Value;
     }
 
     List<MapBuilding> _mapBuildings = [];
@@ -393,7 +418,9 @@ public partial class MainWindow : Window
         {
             var folders = b.Pieces.Select(p => ModPaths.FolderOf(p.Class)).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).Order().ToList();
             int status = folders.Any(IsFolderSelected) ? 2 : 1;
-            list.Add(new Finding(b.Id, L.F("{0} – Gebäude, {1:N0} Mod-Teile · {2}", string.Join(", ", folders), b.ModPieces, MapImages.IslandOf(b.Bounds.X).Name),
+            int risk = status == 2 ? Map.RiskCount(b) : 0;
+            list.Add(new Finding(b.Id, L.F("{0} – Gebäude, {1:N0} Mod-Teile · {2}", string.Join(", ", folders), b.ModPieces, MapImages.IslandOf(b.Bounds.X).Name)
+                + (risk > 0 ? " · " + L.F("{0:N0} Teile gefährdet", risk) : ""),
                 status == 2 ? MapView.SelectedModBrush : MapView.ModBrush, status));
         }
         foreach (var o in _mapObjects.Where(o => o.ModFolder != null))
@@ -428,6 +455,9 @@ public partial class MainWindow : Window
             Entry(Map.OwnerBrush(owner.Key), L.F("{0} ({1} Gebäude)", _save!.OwnerName(owner.Key), owner.Count()));
         Entry(MapView.ModBrush, L.T("Mod-Inhalte"));
         Entry(MapView.SelectedModBrush, L.T("Mod-Inhalte, die in der Übersicht zum Entfernen angehakt sind"));
+        Entry(MapView.RiskBrush, L.T("Bauteile, die nur auf angehakten Mod-Teilen stehen und einstürzen könnten (Näherung)"));
+        var hint = new System.Windows.Controls.TextBlock { Text = L.T("Höhere Stockwerke sind heller gezeichnet, Wände und Zäune als dunkle Linien."), TextWrapping = TextWrapping.Wrap, MaxWidth = 228, Margin = new Thickness(0, 2, 0, 2) };
+        LegendPanel.Children.Add(hint);
         Entry(MapView.GroupBrush, L.T("Gruppe mit Anzahl (herausgezoomt); Farbe nach dem wichtigsten Inhalt"), round: true);
         Entry(MapView.PlaceableBrush, L.T("Platzierte Objekte (Truhen, Werkbänke …)"), round: true);
         Entry(MapView.FigureBrush, L.T("Thralls und Tiere"), round: true);
@@ -465,6 +495,7 @@ public partial class MainWindow : Window
         Map.ShowPlayers = ShowPlayersBox.IsChecked == true;
         Map.OnlyMods = OnlyModsBox.IsChecked == true;
         Map.InvalidateVisual();
+        RefreshSection();
     }
 
     void Map_SelectionChanged() => UpdateMapInfo();
@@ -487,6 +518,8 @@ public partial class MainWindow : Window
             text.AppendLine(b.ModPieces > 0 ? L.F("{0:N0} Bauteile, davon {1:N0} aus Mods", b.Pieces.Count, b.ModPieces) : L.F("{0:N0} Bauteile", b.Pieces.Count));
             foreach (var g in b.Pieces.Select(p => ModPaths.FolderOf(p.Class)).Where(f => f != null).GroupBy(f => f).OrderByDescending(g => g.Count()))
                 text.AppendLine($"   {g.Key}: {g.Count():N0}");
+            if (Map.RiskCount(b) is > 0 and var risk)
+                text.AppendLine(L.F("{0:N0} Teile stehen nur auf Teilen der angehakten Mods und könnten einstürzen (Näherung).", risk));
             if (save.Objects.TryGetValue(b.Id, out var o)) text.Append(SaveGame.Coords(o));
             MapInfoText.Text = text.ToString().TrimEnd();
 
@@ -501,7 +534,8 @@ public partial class MainWindow : Window
             LevelBox.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = L.T("Alle Ebenen"), Tag = null });
             foreach (var l in levels)
                 LevelBox.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = L.F("Ebene {0} – {1} Teile", l.Index, l.Count), Tag = l.Z });
-            LevelBox.SelectedIndex = 0;
+            // Die gewählte Ebene bleibt erhalten, wenn die Auswahl nur neu beschrieben wird
+            LevelBox.SelectedIndex = Math.Max(0, levels.FindIndex(l => l.Z == Map.Level) + 1);
             _updatingLevels = false;
             LevelPanel.Visibility = levels.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
             MapTeleportButton.Visibility = o != null ? Visibility.Visible : Visibility.Collapsed;
@@ -650,12 +684,28 @@ public partial class MainWindow : Window
         var mode = CurrentItemFilter();
         var nodes = Ownership.Build(_save, ItemNames.Build(_game, _mods), filter, ItemOrigin.Build(_game, _mods), mode, SelectedModNames());
         bool searching = !string.IsNullOrWhiteSpace(filter) || mode != ItemFilter.All;
-        OwnershipTree.ItemsSource = nodes.Select(n => new OwnTreeItem(n, searching)).ToList();
+        var items = nodes.Select(n => new OwnTreeItem(n, searching)).ToList();
+        OwnershipTree.ItemsSource = items;
+        RecomputeOwnershipMarks();
         if (searching && nodes.Count == 0)
             StatusText.Text = L.T("Keine passenden Items gefunden.");
     }
 
     void SearchOwnership_Click(object sender, RoutedEventArgs e) => RefreshOwnership();
+
+    /// <summary>Farbmarkierungen im Besitz-Baum an die aktuelle Auswahl in der Übersicht anpassen; der Baum bleibt aufgeklappt, wie er ist.</summary>
+    void RecomputeOwnershipMarks()
+    {
+        if (OwnershipTree.ItemsSource is not List<OwnTreeItem> items) return;
+        var selectedMods = SelectedModNames();
+        foreach (var i in items) i.Recompute(selectedMods.Contains, IsFolderSelected);
+    }
+
+    void ExpandMarked_Click(object sender, RoutedEventArgs e)
+    {
+        if (OwnershipTree.ItemsSource is not List<OwnTreeItem> items) return;
+        foreach (var i in items) i.ExpandMarked();
+    }
 
     void ItemFilter_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {

@@ -197,21 +197,26 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
             .ToList();
         if (buildings.Count == 0) { w.WriteLine("  " + L.T("Keine Bauteile aus dieser Mod.")); w.WriteLine(); return; }
 
-        int mixed = 0;
+        int mixed = 0, atRisk = 0;
         foreach (var b in buildings)
         {
             string who = save.BuildingOwner.TryGetValue(b.Id, out var owner) ? save.OwnerName(owner) : L.T("ohne Besitzer");
             string where = save.Objects.TryGetValue(b.Id, out var o) ? " " + L.F("bei {0}", SaveGame.Coords(o)) : "";
             bool isMixed = b.Mod.Count < b.All.Count;
             if (isMixed) mixed++;
+            int risk = isMixed ? Support.AtRisk(b.All, p => ModPaths.BelongsTo(mod, p.Class)).Count : 0;
+            atRisk += risk;
             w.WriteLine("  " + L.F("Gebäude {0}, {1}{2}: {3} von {4} Bauteilen aus der Mod", b.Id, who, where, b.Mod.Count, b.All.Count)
-                + (isMixed ? "  ← " + L.T("gemischt") : ""));
+                + (isMixed ? "  ← " + L.T("gemischt") : "")
+                + (risk > 0 ? ", " + L.F("{0} Teile stehen nur auf Mod-Teilen", risk) : ""));
             foreach (var g in b.Mod.GroupBy(p => SaveGame.ShortClass(p.Class)).OrderByDescending(g => g.Count()).Take(6))
                 w.WriteLine($"    {g.Count(),4} × {g.Key}");
         }
         findings.Add(L.F("{0} Bauteile in {1} Gebäuden verschwinden.", buildings.Sum(b => b.Mod.Count), buildings.Count));
         if (mixed > 0)
             warnings.Add(L.F("{0} Gebäude bestehen teils aus Mod-Bauteilen, teils aus Bauteilen des Spiels. Fehlen die Mod-Teile, kann der Rest an Stabilität verlieren und einstürzen.", mixed));
+        if (atRisk > 0)
+            warnings.Add(L.F("{0} Bauteile des Spiels stehen nur auf Teilen dieser Mod und könnten nach dem Entfernen einstürzen (Näherung; auf der Karte orange).", atRisk));
         w.WriteLine();
     }
 

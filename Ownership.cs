@@ -20,6 +20,9 @@ sealed class OwnNode(OwnKind kind, string text)
     /// <summary>Bei Items aus Mods: Name der Mod.</summary>
     public string? ModName { get; init; }
 
+    /// <summary>Bei Behältern, Thralls und Tieren aus einer Mod: deren Mod-Ordner.</summary>
+    public string? ModFolder { get; init; }
+
     /// <summary>Summe aller Stückzahlen darunter.</summary>
     public long ItemCount { get; set; }
 
@@ -135,7 +138,7 @@ sealed class Ownership
             var group = new OwnNode(OwnKind.Group, L.T("Thralls und Tiere"));
             foreach (var f in figures)
             {
-                var fn = new OwnNode(OwnKind.Figure, FigureName(f)) { Location = f };
+                var fn = new OwnNode(OwnKind.Figure, FigureName(f)) { Location = f, ModFolder = ModFolderOf(f) };
                 foreach (var s in InventorySections(f.Id, isCharacter: true)) Add(fn, s);
                 Finish(fn);
                 // Auch Begleiter ohne Inventar anzeigen, solange nicht gesucht wird
@@ -184,9 +187,12 @@ sealed class Ownership
                      && _save.ItemsByOwner.ContainsKey(o.Id)
                      && ownerMatches(_save.BuildingOwner.TryGetValue(o.Id, out var b) ? b : 0));
 
+    /// <summary>Mod-Ordner eines Objekts aus einer Mod (ohne Mod-Controller), sonst null.</summary>
+    static string? ModFolderOf(WorldObject o) => ModPaths.FolderOf(o.Class) is { } f && !ModPaths.IsController(o.Class) ? f : null;
+
     OwnNode ContainerNode(WorldObject o)
     {
-        var node = new OwnNode(OwnKind.Container, $"{PrettyClass(o.Class)} (ID {o.Id})") { Location = o };
+        var node = new OwnNode(OwnKind.Container, $"{PrettyClass(o.Class)} (ID {o.Id})") { Location = o, ModFolder = ModFolderOf(o) };
         foreach (var s in InventorySections(o.Id, isCharacter: false)) Add(node, s);
         Finish(node);
         return node;
@@ -202,7 +208,9 @@ sealed class Ownership
             var section = new OwnNode(OwnKind.Section, SectionName(byType.Key, isCharacter, clanStore));
             foreach (var g in byType.Where(i => i.TemplateId > 0).GroupBy(i => i.TemplateId)
                          .Select(g => (Id: g.Key, Qty: g.Sum(i => (long)i.Quantity)))
-                         .OrderBy(g => _names.Name(g.Id) ?? "￿" + g.Id))
+                         // Mod-Items zuerst, damit sie beim Aufklappen gleich zu sehen sind
+                         .OrderBy(g => _origin?.ModTag(g.Id) == null ? 1 : 0)
+                         .ThenBy(g => _names.Name(g.Id) ?? "￿" + g.Id))
             {
                 var label = _names.Label(g.Id);
                 var mod = _origin?.ModTag(g.Id);

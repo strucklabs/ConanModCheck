@@ -5,7 +5,15 @@ using System.Windows.Media;
 
 namespace ConanModCheck.Gui;
 
-enum PieceShape { Square, Triangle, Wall, Pillar }
+enum PieceShape { Square, Triangle, Wall, Pillar, FenceFoundation, Bridge }
+
+/// <summary>Zeichenebene eines Gebäudes: ein Stockwerk, eine Farbgruppe, Flächen oder Linien (Wände, Zäune).</summary>
+/// <param name="Status">0 = normal, 3 = steht auf angehakten Mod-Teilen, 1 = Mod-Teil, 2 = Teil einer angehakten Mod.</param>
+sealed record PieceLayer(int Level, int Status, bool Line, Geometry Geometry);
+
+/// <summary>Ein Bauteil oder Objekt im Höhenschnitt: Strecke entlang der Schnittlinie und Höhe.</summary>
+/// <param name="Marker">Farbe des Markierungspunkts, der obenauf liegt (Mod-Inhalte), sonst null.</param>
+sealed record SectionItem(double S0, double S1, double Z0, double Z1, Brush Fill, Pen? Edge, bool Dot, string Label, Brush? Marker = null);
 
 /// <summary>Ein Gebäude für die Karte: Bauteile, Ausdehnung und Besitzer.</summary>
 sealed class MapBuilding
@@ -40,7 +48,7 @@ sealed class MapView : FrameworkElement
     List<MapBuilding> _buildings = [];
     List<MapObject> _objects = [];
     Func<string, bool> _isSelectedMod = _ => false;
-    readonly Dictionary<long, (Geometry Normal, Geometry Mod, Geometry Selected)> _geometry = [];
+    readonly Dictionary<long, (List<PieceLayer> Layers, HashSet<BuildingPiece> Risk, Dictionary<BuildingPiece, int> Levels)> _geometry = [];
 
     // Ansicht: Weltpunkt in der Fenstermitte, Pixel je Welteinheit, Drehung in Grad
     Point _center;
@@ -49,7 +57,7 @@ sealed class MapView : FrameworkElement
     bool _hasView;
 
     // Maus
-    enum Drag { None, Pan, Rotate, Zoom }
+    enum Drag { None, Pan, Rotate, Zoom, Section }
     Drag _drag;
     Point _dragStart, _dragNow;
     Point _dragCenter;
@@ -76,8 +84,25 @@ sealed class MapView : FrameworkElement
 
     public double Angle => _angle;
 
+    /// <summary>
+    /// Tiefe des Streifens, aus dem der Höhenschnitt gezeichnet wird: vor der Schnittlinie (zum
+    /// Betrachter hin) und dahinter. Der Betrachter steht so, dass A links und B rechts liegt.
+    /// </summary>
+    public double SectionFront { get => _sectionFront; set { _sectionFront = value; InvalidateVisual(); SectionChanged?.Invoke(); } }
+    public double SectionBack { get => _sectionBack; set { _sectionBack = value; InvalidateVisual(); SectionChanged?.Invoke(); } }
+    double _sectionFront = 256, _sectionBack = 256;
+
+    /// <summary>Schnittlinie in Weltkoordinaten (Umschalt + Ziehen), null = kein Höhenschnitt.</summary>
+    public (Point A, Point B)? Section
+    {
+        get => _section;
+        set { _section = value; InvalidateVisual(); SectionChanged?.Invoke(); }
+    }
+    (Point A, Point B)? _section;
+
     public event Action? SelectionChanged;
     public event Action? ViewChanged;
+    public event Action? SectionChanged;
 
     static readonly Brush Background = Frozen(Color.FromRgb(0xF7, 0xF6, 0xF2));
     static readonly Brush GridText = Frozen(Color.FromRgb(0x99, 0x95, 0x8B));
@@ -96,6 +121,11 @@ sealed class MapView : FrameworkElement
     static readonly Pen SelectionPen = FrozenPen(Color.FromRgb(0x1C, 0x7E, 0xD6), 2);
     static readonly Pen ZoomPen = FrozenPen(Color.FromRgb(0x1C, 0x7E, 0xD6), 1.5);
     static readonly Brush ZoomFill = Frozen(Color.FromArgb(0x30, 0x1C, 0x7E, 0xD6));
+    static readonly Brush SectionFill = Frozen(Color.FromArgb(0x26, 0x1C, 0x7E, 0xD6));
+
+    // Bauteile, die nur auf Teilen angehakter Mods stehen und nach dem Entfernen einstürzen könnten
+    public static readonly Brush RiskBrush = Frozen(Color.FromRgb(0xF2, 0x8C, 0x28));
+    static readonly Color RiskEdge = Color.FromRgb(0x8A, 0x43, 0x00);
 
     /// <summary>Besitzerfarben bewusst entsättigt, damit Mod-Teile herausstechen.</summary>
     public static readonly Brush[] OwnerBrushes = new[]
@@ -123,6 +153,7 @@ sealed class MapView : FrameworkElement
         SelectedBuilding = selectedBuilding != null ? buildings.FirstOrDefault(b => b.Id == selectedBuilding) : null;
         SelectedObject = selectedObject != null ? objects.FirstOrDefault(o => o.Object.Id == selectedObject) : null;
         if (!keepView || !_hasView) _hasView = false; // beim nächsten Zeichnen alles einpassen
+        if (!keepView) Section = null;
         InvalidateVisual();
     }
 
@@ -222,7 +253,14 @@ sealed class MapView : FrameworkElement
         e.Handled = true;
     }
 
-    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e) => BeginDrag(e, Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ? Drag.Rotate : Drag.Pan);
+    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e) => BeginDrag(e,
+        Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ? Drag.Rotate : Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? Drag.Section : Drag.Pan);
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape && _section != null) { Section = null; e.Handled = true; }
+        base.OnKeyDown(e);
+    }
 
     protected override void OnMouseRightButtonDown(MouseButtonEventArgs e) => BeginDrag(e, Drag.Zoom);
 
@@ -262,6 +300,7 @@ sealed class MapView : FrameworkElement
                 _angle = Normalize(_dragAngle + (a1 - a0) * 180 / Math.PI);
                 break;
             case Drag.Zoom:
+            case Drag.Section:
                 Cursor = Cursors.Cross;
                 break;
         }
@@ -290,7 +329,13 @@ sealed class MapView : FrameworkElement
                 _scale = Math.Clamp(_scale * Math.Min(ActualWidth / r.Width, ActualHeight / r.Height), 1e-6, 2);
             }
         }
-        else if (!_dragged && mode == Drag.Pan) Click(p);
+        else if (mode == Drag.Section && _dragged)
+        {
+            var a = ToWorld(_dragStart);
+            var b = ToWorld(p);
+            if ((b - a).Length >= Grid) Section = (a, b);
+        }
+        else if (!_dragged && mode is Drag.Pan or Drag.Section) Click(p);
 
         InvalidateVisual();
         ViewChanged?.Invoke();
@@ -371,23 +416,73 @@ sealed class MapView : FrameworkElement
 
         if (_drag == Drag.Zoom && _dragged)
             dc.DrawRectangle(ZoomFill, ZoomPen, new Rect(_dragStart, _dragNow));
+        if (_drag == Drag.Section && _dragged) DrawSectionLine(dc, ToWorld(_dragStart), ToWorld(_dragNow));
+        else if (_section is { } s) DrawSectionLine(dc, s.A, s.B);
+    }
+
+    /// <summary>Schnittlinie mit dem Streifen, aus dem der Höhenschnitt gezeichnet wird; A und B an den Enden.</summary>
+    void DrawSectionLine(DrawingContext dc, Point a, Point b)
+    {
+        var d = b - a;
+        if (d.Length < 1) return;
+        d.Normalize();
+        // Normale zeigt zum Betrachter (nach vorne)
+        var n = new Vector(-d.Y, d.X);
+        var band = new StreamGeometry();
+        using (var g = band.Open())
+        {
+            g.BeginFigure(ToScreen(a + n * _sectionFront), true, true);
+            g.PolyLineTo([ToScreen(b + n * _sectionFront), ToScreen(b - n * _sectionBack), ToScreen(a - n * _sectionBack)], false, false);
+        }
+        band.Freeze();
+        dc.DrawGeometry(SectionFill, null, band);
+        dc.DrawLine(SelectionPen, ToScreen(a), ToScreen(b));
+
+        // Blickrichtung: Pfeil von der Vorderkante auf die Linie
+        var mid = ToScreen(a + (b - a) / 2);
+        var toward = ToScreen(a + (b - a) / 2 + n) - mid;
+        if (toward.Length > 0)
+        {
+            toward.Normalize();
+            var tail = ToScreen(a + (b - a) / 2 + n * _sectionFront) + toward * 26;
+            var tip = mid + toward * 4;
+            var side = new Vector(-toward.Y, toward.X) * 6;
+            dc.DrawLine(SelectionPen, tail, tip);
+            var head = new StreamGeometry();
+            using (var g = head.Open())
+            {
+                g.BeginFigure(tip, true, true);
+                g.PolyLineTo([tip + toward * 12 + side, tip + toward * 12 - side], false, false);
+            }
+            head.Freeze();
+            dc.DrawGeometry(SelectionPen.Brush, null, head);
+        }
+        double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        var typeface = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
+        foreach (var (p, label) in new[] { (a, "A"), (b, "B") })
+        {
+            var sp = ToScreen(p);
+            dc.DrawEllipse(Brushes.White, SelectionPen, sp, 8, 8);
+            var text = new FormattedText(label, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 10, SelectionPen.Brush, dpi);
+            dc.DrawText(text, new Point(sp.X - text.Width / 2, sp.Y - text.Height / 2));
+        }
     }
 
     void DrawDetailed(DrawingContext dc, Rect view, Transform matrix)
     {
         foreach (var b in VisibleBuildings())
         {
-            if (!view.IntersectsWith(Inflated(b.Bounds, Grid))) continue;
-            var ownerBrush = OwnerBrush(b.Owner);
+            if (!view.IntersectsWith(Inflated(b.Bounds, Grid * 3))) continue;
+            var owner = ((SolidColorBrush)OwnerBrush(b.Owner)).Color;
             var g = GeometryFor(b);
             dc.PushTransform(matrix);
             bool faded = SelectedBuilding == b && _level != null;
             if (faded) dc.PushOpacity(0.18);
-            DrawPieces(dc, ownerBrush, g, OnlyMods);
+            DrawPieces(dc, owner, g.Layers, OnlyMods);
             if (faded)
             {
                 dc.Pop();
-                DrawPieces(dc, ownerBrush, LevelGeometry(b), OnlyMods);
+                DrawPieces(dc, owner, LevelGeometry(b), OnlyMods);
             }
             if (b == SelectedBuilding)
             {
@@ -397,9 +492,22 @@ sealed class MapView : FrameworkElement
             dc.Pop();
         }
 
+        // Zäune, Tore und Türen als Linie in ihrer Ausrichtung, wie die Wände der Gebäude
+        double lineWidth = Math.Max(2.2, 20 * _scale);
+        foreach (var o in VisibleObjects().Where(o => o.Kind == MapObjectKind.Placeable && Support.IsFenceObject(o.Object.Class)))
+        {
+            if (!view.Contains(o.Object.X, o.Object.Y)) continue;
+            var (a, b) = FenceEnds(o.Object);
+            var color = Status(o) switch { 2 => SelectedModEdge, 1 => ModEdge, _ => Darken(((SolidColorBrush)OwnerBrush(o.Owner)).Color, 0.55) };
+            if (o == SelectedObject) dc.DrawLine(LinePen(((SolidColorBrush)SelectionPen.Brush).Color, lineWidth + 4), ToScreen(a), ToScreen(b));
+            dc.DrawLine(LinePen(color, lineWidth), ToScreen(a), ToScreen(b));
+            if (Status(o) != 0) dc.DrawLine(LinePen(((SolidColorBrush)(Status(o) == 2 ? SelectedModBrush : ModBrush)).Color, Math.Max(1, lineWidth - 2)), ToScreen(a), ToScreen(b));
+        }
+
         foreach (var o in VisibleObjects())
         {
             if (!view.Contains(o.Object.X, o.Object.Y)) continue;
+            if (o.Kind == MapObjectKind.Placeable && Support.IsFenceObject(o.Object.Class)) continue;
             var p = ToScreen(o.Object.X, o.Object.Y);
             double r = o.Kind == MapObjectKind.Player ? 6 : 4;
             var brush = Status(o) switch { 2 => SelectedModBrush, 1 => ModBrush, _ => KindBrush(o.Kind) };
@@ -513,16 +621,56 @@ sealed class MapView : FrameworkElement
 
     Brush KindBrush(MapObjectKind kind) => kind switch { MapObjectKind.Placeable => PlaceableBrush, MapObjectKind.Figure => FigureBrush, _ => PlayerBrush };
 
-    /// <summary>Zeichnet die Bauteile eines Gebäudes; Mod-Teile mit dunklem Rand (1,5 Pixel, unabhängig vom Zoom).</summary>
-    void DrawPieces(DrawingContext dc, Brush ownerBrush, (Geometry Normal, Geometry Mod, Geometry Selected) g, bool fadeNormal)
+    /// <summary>
+    /// Zeichnet die Bauteile eines Gebäudes Stockwerk für Stockwerk: höhere Stockwerke heller,
+    /// Wände und Zäune als Linien mit Mindestbreite, Umrisse der Teile erst ab einer gewissen Zoomstufe.
+    /// Mod-Teile haben immer einen dunklen Rand (1,5 Pixel, unabhängig vom Zoom).
+    /// </summary>
+    void DrawPieces(DrawingContext dc, Color owner, List<PieceLayer> layers, bool fadeNormal)
     {
-        if (fadeNormal) dc.PushOpacity(0.25);
-        dc.DrawGeometry(ownerBrush, null, g.Normal);
-        if (fadeNormal) dc.Pop();
-        double edge = 1.5 / _scale;
-        dc.DrawGeometry(ModBrush, new Pen(new SolidColorBrush(ModEdge), edge), g.Mod);
-        dc.DrawGeometry(SelectedModBrush, new Pen(new SolidColorBrush(SelectedModEdge), edge), g.Selected);
+        double px = 1 / _scale;                         // ein Bildschirmpixel in Welteinheiten
+        double lineWidth = Math.Max(20, 2.2 * px);       // Wände und Zäune nie dünner als gut 2 Pixel
+        bool outlines = Grid * _scale >= 14;             // Umrisse erst, wenn ein Rasterfeld groß genug ist
+        foreach (var l in layers)
+        {
+            bool fade = fadeNormal && l.Status == 0;
+            if (fade) dc.PushOpacity(0.25);
+            var fill = l.Status switch { 1 => ((SolidColorBrush)ModBrush).Color, 2 => ((SolidColorBrush)SelectedModBrush).Color, 3 => ((SolidColorBrush)RiskBrush).Color, _ => Lighten(owner, l.Level) };
+            var edge = l.Status switch { 1 => ModEdge, 2 => SelectedModEdge, 3 => RiskEdge, _ => Darken(fill, 0.62) };
+            if (l.Line)
+            {
+                // Farbige Linien bekommen einen dunklen Rand: erst breit in Randfarbe, dann schmaler darüber
+                if (l.Status != 0) dc.DrawGeometry(null, LinePen(edge, lineWidth + 3 * px), l.Geometry);
+                dc.DrawGeometry(null, LinePen(l.Status == 0 ? Darken(fill, 0.55) : fill, lineWidth), l.Geometry);
+            }
+            else
+            {
+                var pen = l.Status != 0 ? new Pen(new SolidColorBrush(edge), 1.5 * px) : outlines ? new Pen(new SolidColorBrush(edge), px) : null;
+                dc.DrawGeometry(new SolidColorBrush(fill), pen, l.Geometry);
+            }
+            if (fade) dc.Pop();
+        }
     }
+
+    /// <summary>Enden eines Zauns: er steht quer zu seiner Blickrichtung, gut 240 Einheiten lang.</summary>
+    static (Point A, Point B) FenceEnds(WorldObject o)
+    {
+        double a = o.Yaw * Math.PI / 180;
+        var d = new Vector(-Math.Sin(a), Math.Cos(a)) * 120;
+        var c = new Point(o.X, o.Y);
+        return (c - d, c + d);
+    }
+
+    static Pen LinePen(Color c, double width) => new(new SolidColorBrush(c), width) { StartLineCap = PenLineCap.Square, EndLineCap = PenLineCap.Square };
+
+    /// <summary>Höhere Stockwerke heller, bis höchstens halb zu Weiß.</summary>
+    static Color Lighten(Color c, int level)
+    {
+        double t = Math.Min(0.5, level * 0.13);
+        return Color.FromRgb((byte)(c.R + (255 - c.R) * t), (byte)(c.G + (255 - c.G) * t), (byte)(c.B + (255 - c.B) * t));
+    }
+
+    static Color Darken(Color c, double f) => Color.FromRgb((byte)(c.R * f), (byte)(c.G * f), (byte)(c.B * f));
 
     void DrawGrid(DrawingContext dc, Rect view, Transform matrix)
     {
@@ -549,69 +697,174 @@ sealed class MapView : FrameworkElement
 
     static NumberFormatInfo Numbers => L.Numbers;
 
-    (Geometry Normal, Geometry Mod, Geometry Selected) GeometryFor(MapBuilding b)
+    (List<PieceLayer> Layers, HashSet<BuildingPiece> Risk, Dictionary<BuildingPiece, int> Levels) GeometryFor(MapBuilding b)
     {
         if (_geometry.TryGetValue(b.Id, out var g)) return g;
-        g = Build(b.Pieces);
+        var risk = Support.AtRisk(b.Pieces, IsSelectedModPiece);
+        var levels = Support.Levels(b.Pieces);
+        g = (Build(b.Pieces, risk, levels), risk, levels);
         _geometry[b.Id] = g;
         return g;
     }
 
-    (Geometry Normal, Geometry Mod, Geometry Selected) LevelGeometry(MapBuilding b) =>
-        Build(b.Pieces.Where(p => _level is { } l && Math.Abs(p.Z - l) < Grid / 2));
+    /// <summary>Anzahl der Bauteile, die nur auf Teilen angehakter Mods stehen (Näherung).</summary>
+    public int RiskCount(MapBuilding b) => GeometryFor(b).Risk.Count;
 
-    (Geometry, Geometry, Geometry) Build(IEnumerable<BuildingPiece> pieces)
+    List<PieceLayer> LevelGeometry(MapBuilding b)
     {
-        var normal = new StreamGeometry();
-        var mod = new StreamGeometry();
-        var selected = new StreamGeometry();
-        using (var n = normal.Open())
-        using (var m = mod.Open())
-        using (var s = selected.Open())
+        var g = GeometryFor(b);
+        return Build(b.Pieces.Where(p => _level is { } l && Math.Abs(p.Z - l) < Grid / 2), g.Risk, g.Levels);
+    }
+
+    int PieceStatus(BuildingPiece p, HashSet<BuildingPiece> risk) =>
+        IsSelectedModPiece(p) ? 2 : ModPaths.FolderOf(p.Class) != null ? 1 : risk.Contains(p) ? 3 : 0;
+
+    static readonly int[] StatusOrder = [0, 2, 3, 1]; // Reihenfolge innerhalb eines Stockwerks: normal, gefährdet, Mod, angehakte Mod
+
+    List<PieceLayer> Build(IEnumerable<BuildingPiece> pieces, HashSet<BuildingPiece> risk, Dictionary<BuildingPiece, int> levels)
+    {
+        var layers = new List<PieceLayer>();
+        foreach (var group in pieces
+            .GroupBy(p => (Level: levels.GetValueOrDefault(p), Status: PieceStatus(p, risk), Line: IsLine(Shape(p.Class))))
+            .OrderBy(g => g.Key.Level).ThenBy(g => g.Key.Line).ThenBy(g => StatusOrder[g.Key.Status]))
         {
-            // Wände und Pfeiler zuletzt, damit sie über den Böden liegen
-            foreach (var p in pieces.OrderBy(p => Shape(p.Class) is PieceShape.Wall or PieceShape.Pillar ? 1 : 0).ThenBy(p => p.Z))
-            {
-                var ctx = IsSelectedModPiece(p) ? s : ModPaths.FolderOf(p.Class) != null ? m : n;
-                AddPiece(ctx, p);
-            }
+            var geometry = new StreamGeometry();
+            using (var ctx = geometry.Open())
+                foreach (var p in group.OrderBy(p => p.Z)) AddPiece(ctx, p);
+            // Übereinanderliegende Teile (Fundament, Decke, Dach) dürfen sich nicht gegenseitig
+            // „ausstanzen“, wie es die Standard-Füllregel (gerade/ungerade) täte
+            geometry.FillRule = FillRule.Nonzero;
+            geometry.Freeze();
+            layers.Add(new PieceLayer(group.Key.Level, group.Key.Status, group.Key.Line, geometry));
         }
-        // Übereinanderliegende Teile (Fundament, Decke, Dach) dürfen sich nicht gegenseitig
-        // „ausstanzen“, wie es die Standard-Füllregel (gerade/ungerade) täte
-        foreach (var g in new[] { normal, mod, selected }) { g.FillRule = FillRule.Nonzero; g.Freeze(); }
-        return (normal, mod, selected);
+        return layers;
     }
 
     bool IsSelectedModPiece(BuildingPiece p) => ModPaths.FolderOf(p.Class) is { } f && _isSelectedMod(f);
 
-    /// <summary>Ordnet ein Bauteil anhand seines Klassennamens einer einfachen Form zu.</summary>
-    public static PieceShape Shape(string cls)
-    {
-        var c = SaveGame.ShortClass(cls).ToLowerInvariant();
-        if (c.Contains("pillar")) return PieceShape.Pillar;
-        if (c.Contains("wall") || c.Contains("fence") || c.Contains("door") || c.Contains("gate") || c.Contains("window")
-            || c.Contains("railing") || c.Contains("crenel") || c.Contains("palisade")) return PieceShape.Wall;
-        if (c.Contains("triangle")) return PieceShape.Triangle;
-        return PieceShape.Square;
-    }
+    static bool IsLine(PieceShape s) => s == PieceShape.Wall;
 
-    static void AddPiece(StreamGeometryContext ctx, BuildingPiece p)
+    /// <summary>Ordnet ein Bauteil anhand seines Klassennamens einer einfachen Form zu.</summary>
+    public static PieceShape Shape(string cls) => Support.KindOf(cls) switch
+    {
+        PieceKind.Pillar => PieceShape.Pillar,
+        PieceKind.Wall or PieceKind.Fence => PieceShape.Wall,
+        PieceKind.FenceFoundation => PieceShape.FenceFoundation,
+        PieceKind.Bridge => PieceShape.Bridge,
+        _ => SaveGame.ShortClass(cls).Contains("triangle", StringComparison.OrdinalIgnoreCase) ? PieceShape.Triangle : PieceShape.Square,
+    };
+
+    /// <summary>Umriss eines Bauteils in der Draufsicht (Weltkoordinaten); Wände und Zäune als schmales Rechteck.</summary>
+    static Point[] Outline(BuildingPiece p)
     {
         double a = p.Yaw * Math.PI / 180, cos = Math.Cos(a), sin = Math.Sin(a);
         // Lokale Koordinaten drehen und an die Position schieben
         Point T(double lx, double ly) => new(p.X + lx * cos - ly * sin, p.Y + lx * sin + ly * cos);
-
-        Point[] pts = Shape(p.Class) switch
+        return Shape(p.Class) switch
         {
             PieceShape.Wall => [T(-10, -Grid / 2), T(10, -Grid / 2), T(10, Grid / 2), T(-10, Grid / 2)],
             PieceShape.Pillar => [T(-22, -22), T(22, -22), T(22, 22), T(-22, 22)],
+            // Zaunfundament: schmaler Balken unter dem Zaun
+            // Brücke: Drehpunkt am Ende, sie reicht in Blickrichtung
+            PieceShape.Bridge => [T(0, -100), T(Support.BridgeLength(p.Class), -100), T(Support.BridgeLength(p.Class), 100), T(0, 100)],
+            PieceShape.FenceFoundation => [T(-40, -Grid / 2 + 2), T(40, -Grid / 2 + 2), T(40, Grid / 2 - 2), T(-40, Grid / 2 - 2)],
             // Gleichseitiges Dreieck, Seitenlänge 256, Mittelpunkt im Schwerpunkt
             PieceShape.Triangle => [T(Grid / Math.Sqrt(3), 0), T(-Grid / (2 * Math.Sqrt(3)), Grid / 2), T(-Grid / (2 * Math.Sqrt(3)), -Grid / 2)],
             _ => [T(-Grid / 2 + 4, -Grid / 2 + 4), T(Grid / 2 - 4, -Grid / 2 + 4), T(Grid / 2 - 4, Grid / 2 - 4), T(-Grid / 2 + 4, Grid / 2 - 4)],
         };
-        ctx.BeginFigure(pts[0], isFilled: true, isClosed: true);
-        ctx.PolyLineTo(pts[1..], isStroked: false, isSmoothJoin: false);
     }
+
+    static void AddPiece(StreamGeometryContext ctx, BuildingPiece p)
+    {
+        if (IsLine(Shape(p.Class)))
+        {
+            // Wand oder Zaun als Mittellinie; die Breite kommt beim Zeichnen vom Stift
+            double a = p.Yaw * Math.PI / 180, cos = Math.Cos(a), sin = Math.Sin(a);
+            var d = new Vector(-Grid / 2 * sin, Grid / 2 * cos);
+            var c = new Point(p.X, p.Y);
+            ctx.BeginFigure(c - d, isFilled: false, isClosed: false);
+            ctx.LineTo(c + d, isStroked: true, isSmoothJoin: false);
+            return;
+        }
+        var pts = Outline(p);
+        ctx.BeginFigure(pts[0], isFilled: true, isClosed: true);
+        ctx.PolyLineTo(pts[1..], isStroked: true, isSmoothJoin: false);
+    }
+
+    // ---------- Höhenschnitt ----------
+
+    /// <summary>
+    /// Alles im Streifen entlang der Schnittlinie, umgerechnet in Strecke ab A und Höhe.
+    /// Reihenfolge streng von hinten nach vorne, damit Näheres Entfernteres verdeckt. Mod-Inhalte
+    /// bekommen einen Markierungspunkt, der obenauf gezeichnet wird.
+    /// </summary>
+    public List<SectionItem> SectionItems()
+    {
+        var items = new List<(double Depth, SectionItem Item)>();
+        Brush? MarkerFor(int status) => status switch { 1 => ModBrush, 2 => SelectedModBrush, 3 => RiskBrush, _ => null };
+        if (_section is not { } sec) return [];
+        var dir = sec.B - sec.A;
+        double length = dir.Length;
+        dir.Normalize();
+        double Along(Point p) => (p - sec.A) * dir;
+        // Abstand zur Linie, positiv nach vorne (zum Betrachter)
+        double Across(Point p) => (p - sec.A).X * -dir.Y + (p - sec.A).Y * dir.X;
+        bool Inside(Point p) => Across(p) <= _sectionFront && Across(p) >= -_sectionBack && Along(p) >= -Grid && Along(p) <= length + Grid;
+
+        var area = new Rect(sec.A, sec.B);
+        double reach = Math.Max(_sectionFront, _sectionBack) + Grid;
+        area.Inflate(reach, reach);
+        foreach (var b in VisibleBuildings().Where(b => area.IntersectsWith(Inflated(b.Bounds, Grid))))
+        {
+            var g = GeometryFor(b);
+            var owner = ((SolidColorBrush)OwnerBrush(b.Owner)).Color;
+            foreach (var p in b.Pieces)
+            {
+                // Mitte des Umrisses statt Drehpunkt: Brücken haben ihren Drehpunkt am Ende
+                var outline = Outline(p);
+                var center = new Point(outline.Average(q => q.X), outline.Average(q => q.Y));
+                if (!Inside(center)) continue;
+                int status = PieceStatus(p, g.Risk);
+                if (OnlyMods && status == 0) continue;
+                var s = outline.Select(Along).ToList();
+                var (z0, z1) = Support.Extent(p);
+                var fill = status switch { 1 => ModBrush, 2 => SelectedModBrush, 3 => RiskBrush, _ => Frozen(Lighten(owner, g.Levels.GetValueOrDefault(p))) };
+                Pen? edge = status switch
+                {
+                    1 => FrozenPen(ModEdge, 1),
+                    2 => FrozenPen(SelectedModEdge, 1),
+                    3 => FrozenPen(RiskEdge, 1),
+                    _ => FrozenPen(Darken(((SolidColorBrush)fill).Color, 0.62), 1),
+                };
+                string label = Ownership.PrettyClass(p.Class)
+                    + (ModPaths.FolderOf(p.Class) is { } f ? $" [{f}]" : "")
+                    + (status == 3 ? " – " + L.T("steht nur auf Teilen angehakter Mods") : "")
+                    + " · Z " + p.Z.ToString("N0", Numbers);
+                items.Add((Across(center), new SectionItem(s.Min(), s.Max(), z0, z1, fill, edge, false, label, MarkerFor(status))));
+            }
+        }
+        foreach (var o in VisibleObjects())
+        {
+            var pt = new Point(o.Object.X, o.Object.Y);
+            if (!Inside(pt)) continue;
+            int status = Status(o);
+            var fill = status switch { 2 => SelectedModBrush, 1 => ModBrush, _ => KindBrush(o.Kind) };
+            string label = Ownership.PrettyClass(o.Object.Class) + (o.ModFolder is { } f ? $" [{f}]" : "") + " · Z " + o.Object.Z.ToString("N0", Numbers);
+            double s = Along(pt);
+            if (o.Kind == MapObjectKind.Placeable && Support.IsFenceObject(o.Object.Class))
+            {
+                var (a, b) = FenceEnds(o.Object);
+                double sa = Along(a), sb = Along(b);
+                var color = status == 0 ? Frozen(Darken(((SolidColorBrush)OwnerBrush(o.Owner)).Color, 0.55)) : fill;
+                items.Add((Across(pt), new SectionItem(Math.Min(sa, sb), Math.Max(sa, sb), o.Object.Z, o.Object.Z + 192, color, null, false, label, MarkerFor(status))));
+                continue;
+            }
+            items.Add((Across(pt), new SectionItem(s, s, o.Object.Z, o.Object.Z, fill, DotPen, true, label, MarkerFor(status))));
+        }
+        return items.OrderBy(i => i.Depth).Select(i => i.Item).ToList();
+    }
+
+    public double SectionLength => _section is { } s ? (s.B - s.A).Length : 0;
 
     static double Normalize(double a) => ((a % 360) + 540) % 360 - 180;
 

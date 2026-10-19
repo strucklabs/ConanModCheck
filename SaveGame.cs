@@ -2,7 +2,8 @@ using Microsoft.Data.Sqlite;
 
 namespace ConanModCheck;
 
-sealed record WorldObject(long Id, string Class, double X, double Y, double Z);
+/// <param name="Yaw">Drehung um die Hochachse in Grad (für Zäune und Türen auf der Karte).</param>
+sealed record WorldObject(long Id, string Class, double X, double Y, double Z, double Yaw = 0);
 /// <param name="Yaw">Drehung um die Hochachse in Grad.</param>
 sealed record BuildingPiece(long ObjectId, long InstanceId, string Class, double X = 0, double Y = 0, double Z = 0, double Yaw = 0);
 /// <param name="Quantity">Stückzahl des Stapels (1, wenn nicht gespeichert).</param>
@@ -49,9 +50,13 @@ sealed class SaveGame
         db.Open();
         var s = new SaveGame();
 
-        foreach (var r in Query(db, "SELECT id, class, x, y, z FROM actor_position"))
+        foreach (var r in Query(db, "SELECT id, class, x, y, z, rx, ry, rz, rw FROM actor_position"))
+        {
+            double qx = Num(r, 5), qy = Num(r, 6), qz = Num(r, 7), qw = Num(r, 8);
+            double yaw = Math.Atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz)) * 180 / Math.PI;
             s.Objects[r.GetInt64(0)] = new WorldObject(r.GetInt64(0), r.IsDBNull(1) ? "" : r.GetString(1),
-                Num(r, 2), Num(r, 3), Num(r, 4));
+                Num(r, 2), Num(r, 3), Num(r, 4), yaw);
+        }
 
         foreach (var r in Query(db, "SELECT object_id, owner_id FROM buildings"))
             s.BuildingOwner[r.GetInt64(0)] = r.GetInt64(1);

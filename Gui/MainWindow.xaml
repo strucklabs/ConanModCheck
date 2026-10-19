@@ -127,6 +127,8 @@
                 <DockPanel Margin="8">
                     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
                         <Button DockPanel.Dock="Right" Content="Als Text speichern …" Margin="6,0,0,0" Click="SaveOwnership_Click" />
+                        <Button DockPanel.Dock="Right" Content="Mod-Inhalte aufklappen" Margin="6,0,0,0" Click="ExpandMarked_Click"
+                                ToolTip="Klappt alle Zweige mit Mod-Inhalten auf und alle anderen zu." />
                         <ComboBox x:Name="ItemFilterBox" DockPanel.Dock="Right" Margin="12,0,0,0" Width="190" VerticalContentAlignment="Center"
                                   SelectedIndex="0" SelectionChanged="ItemFilter_Changed">
                             <ComboBoxItem Content="Alle Items" />
@@ -140,7 +142,7 @@
                                  ToolTip="Teil eines Item- oder Mod-Namens, z. B. „Sternenmetall“. Leer lassen für alles." />
                     </DockPanel>
                     <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource Hint}"
-                               Text="Zahlen in eckigen Klammern sind Stückzahlen, Namen in eckigen Klammern die Mod, aus der ein Item stammt. Rechtsklick auf ein Objekt kopiert den Teleport-Befehl für die Admin-Konsole." />
+                               Text="Gelb: Inhalte aus Mods, rot: aus Mods, die in der Übersicht zum Entfernen angehakt sind – übergeordnete Zeilen tragen die Farbe ihrer Inhalte. Zahlen in eckigen Klammern sind Stückzahlen, Namen in eckigen Klammern die Mod. Rechtsklick auf ein Objekt kopiert den Teleport-Befehl." />
                     <TreeView x:Name="OwnershipTree" VirtualizingStackPanel.IsVirtualizing="True" PreviewMouseRightButtonDown="OwnershipTree_PreviewMouseRightButtonDown">
                         <TreeView.ItemContainerStyle>
                             <Style TargetType="TreeViewItem">
@@ -149,7 +151,11 @@
                         </TreeView.ItemContainerStyle>
                         <TreeView.ItemTemplate>
                             <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-                                <TextBlock Text="{Binding Text}" FontWeight="{Binding Weight}" Padding="0,1" />
+                                <StackPanel Orientation="Horizontal">
+                                    <!-- Markierung in den Farben der Karte -->
+                                    <Rectangle Width="9" Height="9" Margin="0,0,5,0" VerticalAlignment="Center" Fill="{Binding Marker}" />
+                                    <TextBlock Text="{Binding Text}" FontWeight="{Binding Weight}" Padding="3,1" Background="{Binding RowBackground}" />
+                                </StackPanel>
                             </HierarchicalDataTemplate>
                         </TreeView.ItemTemplate>
                         <TreeView.ContextMenu>
@@ -168,9 +174,38 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="270" />
                     </Grid.ColumnDefinitions>
-                    <Border BorderBrush="#CCC" BorderThickness="1">
-                        <local:MapView x:Name="Map" />
-                    </Border>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Border BorderBrush="#CCC" BorderThickness="1">
+                            <local:MapView x:Name="Map" />
+                        </Border>
+                        <!-- Höhenschnitt: erscheint, sobald auf der Karte eine Schnittlinie gezogen ist -->
+                        <Border x:Name="SectionPanel" Grid.Row="1" BorderBrush="#CCC" BorderThickness="1" Margin="0,6,0,0" Height="240" Visibility="Collapsed">
+                            <DockPanel>
+                                <DockPanel DockPanel.Dock="Top" Margin="6,4,6,2">
+                                    <Button DockPanel.Dock="Right" Content="Schnitt schließen" Click="CloseSection_Click" />
+                                    <!-- Tiefe des Streifens vor und hinter der Schnittlinie -->
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,12,0">
+                                        <TextBlock Text="Vorne:" VerticalAlignment="Center" Margin="0,0,4,0"
+                                                   ToolTip="Wie weit vor der Linie (zum Betrachter hin) Teile mitgezeigt werden. Der Pfeil auf der Karte zeigt die Blickrichtung." />
+                                        <Slider x:Name="SectionFrontSlider" Width="150" Minimum="0" Maximum="4096" Value="256" TickFrequency="128"
+                                                IsSnapToTickEnabled="True" VerticalAlignment="Center" ValueChanged="SectionDepth_Changed" />
+                                        <TextBlock x:Name="SectionFrontText" Width="44" VerticalAlignment="Center" Margin="4,0,14,0" Text="256" />
+                                        <TextBlock Text="Hinten:" VerticalAlignment="Center" Margin="0,0,4,0"
+                                                   ToolTip="Wie weit hinter der Linie Teile mitgezeigt werden." />
+                                        <Slider x:Name="SectionBackSlider" Width="150" Minimum="0" Maximum="4096" Value="256" TickFrequency="128"
+                                                IsSnapToTickEnabled="True" VerticalAlignment="Center" ValueChanged="SectionDepth_Changed" />
+                                        <TextBlock x:Name="SectionBackText" Width="44" VerticalAlignment="Center" Margin="4,0,0,0" Text="256" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="SectionTitle" VerticalAlignment="Center" FontWeight="SemiBold" Text="Höhenschnitt" TextTrimming="CharacterEllipsis" />
+                                </DockPanel>
+                                <local:SectionView x:Name="Section" />
+                            </DockPanel>
+                        </Border>
+                    </Grid>
                     <DockPanel Grid.Column="1" Margin="10,0,0,0">
                         <StackPanel DockPanel.Dock="Top">
                             <WrapPanel>
@@ -180,7 +215,7 @@
                                 <Button x:Name="ResetRotationButton" Content="Norden oben" Margin="0,0,6,6" Visibility="Collapsed" Click="ResetRotation_Click" />
                             </WrapPanel>
                             <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,0"
-                                       Text="Mausrad: zoomen · Ziehen: verschieben · Rechte Maustaste ziehen: Ausschnitt vergrößern · Strg + Ziehen: drehen · Klick auf Gruppe oder Randpfeil: hinspringen" />
+                                       Text="Mausrad: zoomen · Ziehen: verschieben · Rechte Maustaste ziehen: Ausschnitt vergrößern · Strg + Ziehen: drehen · Umschalt + Ziehen: Höhenschnitt · Klick auf Gruppe oder Randpfeil: hinspringen" />
 
                             <GroupBox Header="Auswahl" Margin="0,10,0,0">
                                 <StackPanel>

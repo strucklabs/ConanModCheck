@@ -127,6 +127,7 @@
                 <DockPanel Margin="8">
                     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
                         <Button DockPanel.Dock="Right" Content="Als Text speichern …" Margin="6,0,0,0" Click="SaveOwnership_Click" />
+                        <Button DockPanel.Dock="Right" Content="Alles zuklappen" Margin="6,0,0,0" Click="CollapseAll_Click" />
                         <Button DockPanel.Dock="Right" Content="Mod-Inhalte aufklappen" Margin="6,0,0,0" Click="ExpandMarked_Click"
                                 ToolTip="Klappt alle Zweige mit Mod-Inhalten auf und alle anderen zu." />
                         <ComboBox x:Name="ItemFilterBox" DockPanel.Dock="Right" Margin="12,0,0,0" Width="190" VerticalContentAlignment="Center"
@@ -191,12 +192,12 @@
                                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,12,0">
                                         <TextBlock Text="Vorne:" VerticalAlignment="Center" Margin="0,0,4,0"
                                                    ToolTip="Wie weit vor der Linie (zum Betrachter hin) Teile mitgezeigt werden. Der Pfeil auf der Karte zeigt die Blickrichtung." />
-                                        <Slider x:Name="SectionFrontSlider" Width="150" Minimum="0" Maximum="4096" Value="256" TickFrequency="128"
+                                        <Slider x:Name="SectionFrontSlider" Width="150" Minimum="0" Maximum="4096" Value="256" TickFrequency="64"
                                                 IsSnapToTickEnabled="True" VerticalAlignment="Center" ValueChanged="SectionDepth_Changed" />
                                         <TextBlock x:Name="SectionFrontText" Width="44" VerticalAlignment="Center" Margin="4,0,14,0" Text="256" />
                                         <TextBlock Text="Hinten:" VerticalAlignment="Center" Margin="0,0,4,0"
                                                    ToolTip="Wie weit hinter der Linie Teile mitgezeigt werden." />
-                                        <Slider x:Name="SectionBackSlider" Width="150" Minimum="0" Maximum="4096" Value="256" TickFrequency="128"
+                                        <Slider x:Name="SectionBackSlider" Width="150" Minimum="0" Maximum="4096" Value="256" TickFrequency="64"
                                                 IsSnapToTickEnabled="True" VerticalAlignment="Center" ValueChanged="SectionDepth_Changed" />
                                         <TextBlock x:Name="SectionBackText" Width="44" VerticalAlignment="Center" Margin="4,0,0,0" Text="256" />
                                     </StackPanel>
@@ -270,7 +271,7 @@
                         <Button Content="Bericht speichern …" Click="SaveReport_Click" />
                         <Button Content="Kopieren" Margin="6,0,0,0" Click="CopyReport_Click" />
                     </StackPanel>
-                    <FlowDocumentScrollViewer x:Name="ReportView" PreviewMouseWheel="DocumentView_MouseWheel" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                    <FlowDocumentScrollViewer x:Name="ReportView" PreviewMouseWheel="DocumentView_MouseWheel" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
                                               BorderBrush="#CCC" BorderThickness="1" />
                 </DockPanel>
             </TabItem>
@@ -290,7 +291,7 @@
                                        Text="Vorher wird automatisch eine Sicherungskopie neben dem Spielstand angelegt. Der Server muss gestoppt sein." />
                         </DockPanel>
                     </StackPanel>
-                    <FlowDocumentScrollViewer x:Name="PreviewView" PreviewMouseWheel="DocumentView_MouseWheel" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                    <FlowDocumentScrollViewer x:Name="PreviewView" PreviewMouseWheel="DocumentView_MouseWheel" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
                                               BorderBrush="#CCC" BorderThickness="1" />
                 </DockPanel>
             </TabItem>

@@ -41,6 +41,7 @@ public partial class MainWindow : Window
         Map.SelectionChanged += Map_SelectionChanged;
         Map.ViewChanged += Map_ViewChanged;
         Map.SectionChanged += RefreshSection;
+        Section.ItemClicked += item => Map.Select(item.Building, item.Piece, item.Object);
 
         if (_settings.DbPath != null && File.Exists(_settings.DbPath)) SetDb(_settings.DbPath);
         foreach (var f in _settings.ModFiles.Where(f => File.Exists(f) || Directory.Exists(f))) _modFiles.Add(f);
@@ -390,6 +391,7 @@ public partial class MainWindow : Window
         SectionPanel.Visibility = Visibility.Visible;
         SectionTitle.Text = L.F("Höhenschnitt von A nach B, {0:N0} lang", Map.SectionLength);
         Section.SetItems(Map.SectionItems(), Map.SectionLength);
+        Section.SetSelection(Map.SelectedBuilding, Map.SelectedPiece, Map.SelectedObject);
     }
 
     void CloseSection_Click(object sender, RoutedEventArgs e) => Map.Section = null;
@@ -456,7 +458,7 @@ public partial class MainWindow : Window
         Entry(MapView.ModBrush, L.T("Mod-Inhalte"));
         Entry(MapView.SelectedModBrush, L.T("Mod-Inhalte, die in der Übersicht zum Entfernen angehakt sind"));
         Entry(MapView.RiskBrush, L.T("Bauteile, die nur auf angehakten Mod-Teilen stehen und einstürzen könnten (Näherung)"));
-        var hint = new System.Windows.Controls.TextBlock { Text = L.T("Höhere Stockwerke sind heller gezeichnet, Wände und Zäune als dunkle Linien."), TextWrapping = TextWrapping.Wrap, MaxWidth = 228, Margin = new Thickness(0, 2, 0, 2) };
+        var hint = new System.Windows.Controls.TextBlock { Text = L.T("Höhere Stockwerke sind heller gezeichnet, Wände und Zäune als dunkle Linien, Pfeiler als dunkle Quadrate. Helle Lücken in Wänden sind Türen, Tore und Bögen; ein dünner Strich darin ist ein Türflügel."), TextWrapping = TextWrapping.Wrap, MaxWidth = 228, Margin = new Thickness(0, 2, 0, 2) };
         LegendPanel.Children.Add(hint);
         Entry(MapView.GroupBrush, L.T("Gruppe mit Anzahl (herausgezoomt); Farbe nach dem wichtigsten Inhalt"), round: true);
         Entry(MapView.PlaceableBrush, L.T("Platzierte Objekte (Truhen, Werkbänke …)"), round: true);
@@ -498,7 +500,11 @@ public partial class MainWindow : Window
         RefreshSection();
     }
 
-    void Map_SelectionChanged() => UpdateMapInfo();
+    void Map_SelectionChanged()
+    {
+        UpdateMapInfo();
+        Section.SetSelection(Map.SelectedBuilding, Map.SelectedPiece, Map.SelectedObject);
+    }
 
     bool _updatingLevels;
 
@@ -520,22 +526,34 @@ public partial class MainWindow : Window
                 text.AppendLine($"   {g.Key}: {g.Count():N0}");
             if (Map.RiskCount(b) is > 0 and var risk)
                 text.AppendLine(L.F("{0:N0} Teile stehen nur auf Teilen der angehakten Mods und könnten einstürzen (Näherung).", risk));
-            if (save.Objects.TryGetValue(b.Id, out var o)) text.Append(SaveGame.Coords(o));
+            if (save.Objects.TryGetValue(b.Id, out var o)) text.AppendLine(SaveGame.Coords(o));
+            if (Map.SelectedPiece is { } piece)
+            {
+                // Das angeklickte Bauteil
+                var (level, atRisk) = Map.PieceInfo(b, piece);
+                text.AppendLine();
+                text.AppendLine(L.F("Bauteil: {0}", Ownership.PrettyClass(piece.Class)));
+                text.AppendLine($"   {SaveGame.ShortClass(piece.Class)}");
+                text.AppendLine(L.F("Ebene {0}, Höhe Z {1:N0}", level + 1, piece.Z));
+                if (ModPaths.FolderOf(piece.Class) is { } pieceMod) text.AppendLine(L.F("Aus der Mod: {0}", pieceMod));
+                if (atRisk) text.AppendLine(L.T("Steht nur auf Teilen angehakter Mods und könnte einstürzen (Näherung)."));
+            }
             MapInfoText.Text = text.ToString().TrimEnd();
 
-            // Ebenen: Höhen im Raster von 256 zusammenfassen
-            double minZ = b.Pieces.Min(p => p.Z);
-            var levels = b.Pieces.GroupBy(p => Math.Round((p.Z - minZ) / 256))
+            // Ebenen: dieselbe Stockwerkszählung wie Einfärbung und Bauteil-Info. Zu einer Ebene gehören
+            // der Boden und alles, was darauf steht; angezeigt wird die Bodenhöhe (Mittel der Teile).
+            var pieceLevels = Map.PieceLevels(b);
+            var levels = b.Pieces.GroupBy(p => pieceLevels.GetValueOrDefault(p))
                 .OrderBy(g => g.Key)
-                .Select(g => (Index: (int)g.Key + 1, Z: minZ + g.Key * 256, Count: g.Count()))
+                .Select(g => (Level: g.Key, FloorZ: g.Average(Support.FloorZ), Count: g.Count()))
                 .ToList();
             _updatingLevels = true;
             LevelBox.Items.Clear();
             LevelBox.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = L.T("Alle Ebenen"), Tag = null });
             foreach (var l in levels)
-                LevelBox.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = L.F("Ebene {0} – {1} Teile", l.Index, l.Count), Tag = l.Z });
+                LevelBox.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = L.F("Ebene {0} (Z {1:N0}) – {2} Teile", l.Level + 1, l.FloorZ, l.Count), Tag = l.Level });
             // Die gewählte Ebene bleibt erhalten, wenn die Auswahl nur neu beschrieben wird
-            LevelBox.SelectedIndex = Math.Max(0, levels.FindIndex(l => l.Z == Map.Level) + 1);
+            LevelBox.SelectedIndex = Math.Max(0, levels.FindIndex(l => l.Level == Map.Level) + 1);
             _updatingLevels = false;
             LevelPanel.Visibility = levels.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
             MapTeleportButton.Visibility = o != null ? Visibility.Visible : Visibility.Collapsed;
@@ -570,7 +588,7 @@ public partial class MainWindow : Window
     void LevelBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (_updatingLevels) return;
-        Map.Level = (LevelBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as double?;
+        Map.Level = (LevelBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as int?;
     }
 
     void MapTeleport_Click(object sender, RoutedEventArgs e)
@@ -705,6 +723,12 @@ public partial class MainWindow : Window
     {
         if (OwnershipTree.ItemsSource is not List<OwnTreeItem> items) return;
         foreach (var i in items) i.ExpandMarked();
+    }
+
+    void CollapseAll_Click(object sender, RoutedEventArgs e)
+    {
+        if (OwnershipTree.ItemsSource is not List<OwnTreeItem> items) return;
+        foreach (var i in items) i.CollapseAll();
     }
 
     void ItemFilter_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)

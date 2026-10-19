@@ -29,6 +29,9 @@ sealed class ModPackage : IDisposable
 
     public List<ModTable> Tables { get; } = [];
 
+    /// <summary>Dateinamen aller Pakete der Mod ohne Endung, für die Herkunft von Blueprint-Klassen.</summary>
+    public HashSet<string> AssetNames { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>IDs, die es nur durch diese Mod gibt (nicht im Originalspiel).</summary>
     public HashSet<long> NewIds { get; } = [];
 
@@ -80,6 +83,7 @@ sealed class ModPackage : IDisposable
         if (_container == null) return;
         foreach (var path in _container.Files.Keys)
         {
+            if (path.EndsWith(".uasset", StringComparison.OrdinalIgnoreCase)) AssetNames.Add(Path.GetFileNameWithoutExtension(path));
             if (path.StartsWith("/Game/Mods/", StringComparison.OrdinalIgnoreCase))
             {
                 var folder = path["/Game/Mods/".Length..].Split('/')[0];

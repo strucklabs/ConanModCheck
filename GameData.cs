@@ -28,6 +28,9 @@ sealed class GameData : IDisposable
 
     public bool Contains(string gamePath) => _fileIndex.ContainsKey(gamePath);
 
+    /// <summary>Dateinamen aller Pakete des Spiels ohne Endung (z. B. BP_HungerSystem), für die Herkunft von Blueprint-Klassen.</summary>
+    public HashSet<string> AssetNames { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     public byte[] Read(string gamePath) => _fileIndex[gamePath].Read(gamePath);
 
     public static GameData Load(string gameDir, Action<string> log)
@@ -40,7 +43,11 @@ sealed class GameData : IDisposable
             {
                 var c = new IoStoreContainer(toc);
                 game._containers.Add(c);
-                foreach (var f in c.Files.Keys) game._fileIndex.TryAdd(f, c);
+                foreach (var f in c.Files.Keys)
+                {
+                    game._fileIndex.TryAdd(f, c);
+                    if (f.EndsWith(".uasset", StringComparison.OrdinalIgnoreCase)) game.AssetNames.Add(Path.GetFileNameWithoutExtension(f));
+                }
             }
             catch (Exception ex) { log("  " + L.F("Übersprungen: {0} ({1})", Path.GetFileName(toc), ex.Message)); }
         }

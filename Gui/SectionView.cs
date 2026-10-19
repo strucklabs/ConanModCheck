@@ -25,6 +25,9 @@ sealed class SectionView : FrameworkElement
     static readonly Pen GridPen = FrozenPen(Color.FromRgb(0xE2, 0xDF, 0xD6), 1);
     static readonly Pen HoverPen = FrozenPen(Color.FromRgb(0x1C, 0x7E, 0xD6), 2);
     static readonly Pen MarkerPen = FrozenPen(Color.FromRgb(0x33, 0x33, 0x33), 1.2);
+    static readonly Pen SelectedPen = FrozenPen(Color.FromRgb(0x1C, 0x7E, 0xD6), 3);
+    static readonly Pen SelectedOuterPen = FrozenPen(Colors.White, 5);
+    static readonly Pen HoverThinPen = FrozenPen(Color.FromArgb(0xB0, 0x1C, 0x7E, 0xD6), 1);
 
     public SectionView()
     {
@@ -39,17 +42,44 @@ sealed class SectionView : FrameworkElement
         InvalidateVisual();
     }
 
-    protected override void OnMouseMove(MouseEventArgs e)
+    /// <summary>Klick auf ein Teil im Schnitt.</summary>
+    public event Action<SectionItem>? ItemClicked;
+
+    MapBuilding? _selBuilding;
+    BuildingPiece? _selPiece;
+    MapObject? _selObject;
+
+    /// <summary>Auswahl von der Karte übernehmen: Bauteil kräftig umrandet, übrige Teile des Gebäudes dünn.</summary>
+    public void SetSelection(MapBuilding? building, BuildingPiece? piece, MapObject? obj)
     {
-        var p = e.GetPosition(this);
-        SectionItem? hit = null;
+        _selBuilding = building;
+        _selPiece = piece;
+        _selObject = obj;
+        InvalidateVisual();
+    }
+
+    SectionItem? HitAt(Point p)
+    {
         // Zuletzt gezeichnete Teile liegen oben
         for (int i = _hits.Count - 1; i >= 0; i--)
         {
             var r = _hits[i].Screen;
             r.Inflate(2, 2);
-            if (r.Contains(p)) { hit = _hits[i].Item; break; }
+            if (r.Contains(p)) return _hits[i].Item;
         }
+        return null;
+    }
+
+    protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
+    {
+        if (HitAt(e.GetPosition(this)) is { } item) ItemClicked?.Invoke(item);
+        e.Handled = true;
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        var hit = HitAt(e.GetPosition(this));
+        Cursor = hit != null ? Cursors.Hand : null;
         if (hit != _hover) { _hover = hit; InvalidateVisual(); }
     }
 
@@ -118,6 +148,18 @@ sealed class SectionView : FrameworkElement
             var c = new Point(r.X + r.Width / 2, r.Y + r.Height / 2);
             dc.DrawEllipse(item.Marker, MarkerPen, c, 4, 4);
             _hits.Add((new Rect(c.X - 4, c.Y - 4, 8, 8), item));
+        }
+
+        // Auswahl von der Karte: das Gebäude dünn, das Bauteil bzw. Objekt kräftig umrandet
+        foreach (var (r, item) in _hits)
+        {
+            bool strong = (_selPiece != null && item.Piece == _selPiece) || (_selObject != null && item.Object == _selObject);
+            bool weak = !strong && _selPiece == null && _selBuilding != null && item.Building == _selBuilding;
+            if (!strong && !weak) continue;
+            var box = r;
+            box.Inflate(1, 1);
+            if (strong) dc.DrawRectangle(null, SelectedOuterPen, box);
+            dc.DrawRectangle(null, strong ? SelectedPen : HoverThinPen, box);
         }
 
         // Enden der Schnittlinie

@@ -24,6 +24,8 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
         foreach (var mod in mods) WriteMod(mod);
         Heading(L.T("Reste ohne Besitzer"));
         Orphans.Find(save).Write(w, _names.Label);
+        WritePlayerAttributes();
+        WriteSpecialInventories();
         WriteUnknownItems();
     }
 
@@ -274,6 +276,97 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
         if (buffs.Count > 0) findings.Add(L.F("{0} aktive Effekte der Mod enden.", buffs.Count));
         if (props.Count > 0) findings.Add(L.F("{0} Objekte oder Figuren aus dem Spiel tragen Daten der Mod (z. B. Einstellungen), die dann ungenutzt bleiben.", props.Count));
         w.WriteLine();
+    }
+
+    // ---------- Spielerattribute ----------
+
+    const int GameMaxLevel = 60;
+
+    /// <summary>
+    /// Herkunft einer Komponente an einer Spielerfigur. null = Grundspiel. Klassen ohne „_C“ sind
+    /// fest im Spielprogramm eingebaut (Mods können keine hinzufügen); Blueprint-Klassen („_C“)
+    /// liegen als Paket gleichen Namens in den Spiel- oder Mod-Dateien.
+    /// </summary>
+    string? ComponentOrigin(string component)
+    {
+        if (!component.EndsWith("_C", StringComparison.Ordinal)) return null;
+        var asset = component[..^2];
+        if (game != null && game.AssetNames.Contains(asset)) return null;
+        if ((knownMods ?? mods).FirstOrDefault(m => m.AssetNames.Contains(asset)) is { } mod) return mod.Name;
+        // Ohne Spieldateien lässt sich ein Blueprint keiner Seite zuordnen; dann nicht aufführen
+        return game != null ? L.T("Mod, Datei nicht geladen") : null;
+    }
+
+    /// <summary>
+    /// Je Spieler: Stufe, Attributpunkte, erlernte Talente und Rezepte nach Herkunft und Daten von
+    /// Mod-Komponenten. Nur zur Anzeige – die Bereinigung verändert an Spielerfiguren nichts.
+    /// </summary>
+    void WritePlayerAttributes()
+    {
+        if (save.Characters.Count == 0) return;
+        Heading(L.T("Spielerattribute"));
+        w.WriteLine(L.T("Nur zur Anzeige: Die Bereinigung verändert an Spielerfiguren nichts."));
+        w.WriteLine(L.T("Hinweis: Fallen Talente einer Mod weg, gibt das Spiel die dafür ausgegebenen Wissenspunkte nicht unbedingt von selbst zurück; dann hilft ein Zurücksetzen der Talente im Spiel."));
+        if (game == null)
+            w.WriteLine(L.T("Hinweis: Ohne Spieldateien lässt sich nicht prüfen, welche Talente und gespeicherten Daten der Figuren aus Mods stammen."));
+        w.WriteLine();
+
+        var origin = ItemOrigin.Build(game, knownMods ?? mods);
+        foreach (var (id, name) in save.Characters.OrderBy(c => c.Value, StringComparer.CurrentCultureIgnoreCase))
+        {
+            int level = save.CharacterInfos.TryGetValue(id, out var info) ? info.Level : 0;
+            w.WriteLine(L.F("{0}, Stufe {1}", name, level));
+            if (level > GameMaxLevel)
+                w.WriteLine("  " + L.F("Hinweis: Über der Höchststufe des Grundspiels ({0}). Vermutlich hebt eine Mod oder eine Servereinstellung die Grenze an; ohne sie kann sich die Stufe ändern.", GameMaxLevel));
+
+            if (save.AttributePoints.TryGetValue(id, out var p))
+                w.WriteLine("  " + L.F("Attributpunkte: {0} gesamt, {1} verteilt, {2} frei",
+                    p.GetValueOrDefault("AttributePointsTotal"), p.GetValueOrDefault("AttributePointsDistributed"), p.GetValueOrDefault("AttributePointsUndistributed")));
+
+            var learned = save.ItemsByOwner.TryGetValue(id, out var inv) ? inv.Where(i => i.InvType == 6).ToList() : [];
+            w.WriteLine("  " + L.F("Erlernte Talente und Rezepte: {0}", learned.Count));
+            if (origin.CanTellGameItems)
+                foreach (var g in learned.Select(i => origin.ModTag(i.TemplateId)).OfType<string>().GroupBy(m => m).OrderByDescending(g => g.Count()))
+                    w.WriteLine("    " + L.F("aus {0}: {1}", g.Key, g.Count()));
+
+            var foreign = save.CharacterComponents.TryGetValue(id, out var comps)
+                ? comps.Select(c => (Component: c, Origin: ComponentOrigin(c))).Where(c => c.Origin != null).OrderBy(c => c.Component).ToList()
+                : [];
+            if (foreign.Count > 0)
+                w.WriteLine("  " + L.F("Daten von Komponenten, die nicht zum Grundspiel gehören: {0}",
+                    string.Join(", ", foreign.Select(c => $"{c.Component} ({c.Origin})"))));
+            w.WriteLine();
+        }
+    }
+
+    // ---------- Sonderinventare ----------
+
+    /// <summary>
+    /// Einträge in den Inventar-Typen 3 und 7, deren ID weder zum Spiel noch zu einer geprüften Mod
+    /// passt. Was diese Typen genau enthalten, ist nicht bekannt; deshalb nur zur Anzeige.
+    /// </summary>
+    void WriteSpecialInventories()
+    {
+        if (game == null) return;
+        var known = new HashSet<long>(game.ItemIds.Concat(game.FeatIds).Concat((knownMods ?? mods).SelectMany(m => m.NewIds)));
+        var unknown = save.Items.Where(i => i.InvType is 3 or 7 && !known.Contains(i.TemplateId)).ToList();
+        if (unknown.Count == 0) return;
+
+        Heading(L.T("Unbekannte Einträge in Sonderinventaren"));
+        w.WriteLine(L.T("Inventar-Typ 3 und 7 sind Sonderinventare von Spielfiguren, deren Bedeutung nicht genau bekannt ist."));
+        w.WriteLine(L.T("Diese Einträge passen zu keinem Item oder Talent des Spiels und keiner geprüften Mod. Nur zur Anzeige; die Bereinigung fasst sie nicht an."));
+        w.WriteLine();
+        foreach (var type in unknown.GroupBy(i => i.InvType).OrderBy(g => g.Key))
+        {
+            w.WriteLine(L.F("Inventar-Typ {0}: {1} Einträge, {2} verschiedene IDs, bei {3} Figuren", type.Key, type.Count(),
+                type.Select(i => i.TemplateId).Distinct().Count(), type.Select(i => i.OwnerId).Distinct().Count()));
+            var ids = type.GroupBy(i => i.TemplateId).OrderBy(g => g.Key).ToList();
+            foreach (var g in ids.Take(30))
+                w.WriteLine("  " + L.F("{0}: {1}× bei {2}", _names.Label(g.Key), g.Count(),
+                    string.Join(", ", g.Select(i => save.Characters.TryGetValue(i.OwnerId, out var n) ? n : save.DescribeInventoryOwner(i.OwnerId)).Distinct().Take(4))));
+            if (ids.Count > 30) w.WriteLine("  " + L.F("… und {0} weitere IDs", ids.Count - 30));
+            w.WriteLine();
+        }
     }
 
     // ---------- Items ohne bekannte Herkunft ----------

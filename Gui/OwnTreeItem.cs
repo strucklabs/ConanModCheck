@@ -80,6 +80,13 @@ public sealed class OwnTreeItem : INotifyPropertyChanged
         foreach (var c in Children) c.ExpandMarked();
     }
 
+    /// <summary>Alle Zweige zuklappen.</summary>
+    public void CollapseAll()
+    {
+        IsExpanded = false;
+        foreach (var c in Children) c.CollapseAll();
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
     void Changed(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 

@@ -5,15 +5,22 @@ using System.Windows.Media;
 
 namespace ConanModCheck.Gui;
 
-enum PieceShape { Square, Triangle, Wall, Pillar, FenceFoundation, Bridge }
+enum PieceShape { Square, Triangle, RoofTriangle, RoofTriangleFlipped, Wall, Pillar, FenceFoundation, Bridge }
 
-/// <summary>Zeichenebene eines Gebäudes: ein Stockwerk, eine Farbgruppe, Flächen oder Linien (Wände, Zäune).</summary>
+/// <summary>Wie die Teile einer Zeichenebene gezeichnet werden.</summary>
+enum PieceDraw { Area, Line, Post }
+
+/// <summary>Zeichenebene eines Gebäudes: ein Stockwerk, eine Farbgruppe, Flächen, Linien (Wände, Zäune) oder Pfeiler.</summary>
 /// <param name="Status">0 = normal, 3 = steht auf angehakten Mod-Teilen, 1 = Mod-Teil, 2 = Teil einer angehakten Mod.</param>
-sealed record PieceLayer(int Level, int Status, bool Line, Geometry Geometry);
+sealed record PieceLayer(int Level, int Status, PieceDraw Draw, Geometry Geometry);
 
 /// <summary>Ein Bauteil oder Objekt im Höhenschnitt: Strecke entlang der Schnittlinie und Höhe.</summary>
 /// <param name="Marker">Farbe des Markierungspunkts, der obenauf liegt (Mod-Inhalte), sonst null.</param>
-sealed record SectionItem(double S0, double S1, double Z0, double Z1, Brush Fill, Pen? Edge, bool Dot, string Label, Brush? Marker = null);
+/// <param name="Building">Gebäude des Bauteils, sonst null.</param>
+/// <param name="Piece">Das Bauteil, sonst null.</param>
+/// <param name="Object">Das Objekt (Truhe, Figur …), sonst null.</param>
+sealed record SectionItem(double S0, double S1, double Z0, double Z1, Brush Fill, Pen? Edge, bool Dot, string Label, Brush? Marker = null,
+    MapBuilding? Building = null, BuildingPiece? Piece = null, MapObject? Object = null);
 
 /// <summary>Ein Gebäude für die Karte: Bauteile, Ausdehnung und Besitzer.</summary>
 sealed class MapBuilding
@@ -49,6 +56,7 @@ sealed class MapView : FrameworkElement
     List<MapObject> _objects = [];
     Func<string, bool> _isSelectedMod = _ => false;
     readonly Dictionary<long, (List<PieceLayer> Layers, HashSet<BuildingPiece> Risk, Dictionary<BuildingPiece, int> Levels)> _geometry = [];
+    readonly Dictionary<long, Geometry> _openings = [];
 
     // Ansicht: Weltpunkt in der Fenstermitte, Pixel je Welteinheit, Drehung in Grad
     Point _center;
@@ -71,9 +79,76 @@ sealed class MapView : FrameworkElement
     public MapBuilding? SelectedBuilding { get; private set; }
     public MapObject? SelectedObject { get; private set; }
 
+    /// <summary>Einzelnes Bauteil des ausgewählten Gebäudes (Klick auf der Karte oder im Höhenschnitt), sonst null.</summary>
+    public BuildingPiece? SelectedPiece { get; private set; }
+
+    /// <summary>
+    /// Auswahl von außen, z. B. aus dem Höhenschnitt. Die Ansicht bleibt, wo sie ist; liegt die
+    /// Auswahl außerhalb, wird sie in die Mitte geholt.
+    /// </summary>
+    public void Select(MapBuilding? building, BuildingPiece? piece, MapObject? obj)
+    {
+        if (building != SelectedBuilding) _level = null;
+        SelectedBuilding = building;
+        SelectedPiece = building != null ? piece : null;
+        SelectedObject = building == null ? obj : null;
+        var target = piece != null ? new Point(piece.X, piece.Y) : obj != null ? new Point(obj.Object.X, obj.Object.Y) : building?.Center;
+        if (target is { } t)
+        {
+            var sp = ToScreen(t);
+            if (sp.X < 0 || sp.Y < 0 || sp.X > ActualWidth || sp.Y > ActualHeight) { _center = t; ViewChanged?.Invoke(); }
+        }
+        InvalidateVisual();
+        SelectionChanged?.Invoke();
+    }
+
+    /// <summary>Stockwerk (ab 0) und Einsturzgefahr eines Bauteils.</summary>
+    public (int Level, bool AtRisk) PieceInfo(MapBuilding b, BuildingPiece p)
+    {
+        var g = GeometryFor(b);
+        return (g.Levels.GetValueOrDefault(p), g.Risk.Contains(p));
+    }
+
+    /// <summary>Oberstes Bauteil eines Gebäudes an einem Weltpunkt: zuerst Teile, deren Umriss den Punkt enthält, sonst das nächste.</summary>
+    BuildingPiece? PieceAt(MapBuilding b, Point w)
+    {
+        double lineTolerance = Math.Max(24, 5 / _scale);
+        BuildingPiece? best = null;
+        double bestZ = double.MinValue;
+        foreach (var p in b.Pieces)
+        {
+            bool hit;
+            if (DrawOf(Shape(p.Class)) == PieceDraw.Area) hit = Contains(Outline(p), w);
+            else
+            {
+                // Wände, Zäune und Pfeiler sind schmal: Abstand zur Mittellinie bzw. zum Mittelpunkt
+                double a = p.Yaw * Math.PI / 180;
+                var along = new Vector(-Math.Sin(a), Math.Cos(a));
+                var rel = w - new Point(p.X, p.Y);
+                double t = Math.Clamp(rel * along, DrawOf(Shape(p.Class)) == PieceDraw.Post ? 0 : -Grid / 2, DrawOf(Shape(p.Class)) == PieceDraw.Post ? 0 : Grid / 2);
+                hit = (rel - along * t).Length <= lineTolerance;
+            }
+            if (hit && Support.Extent(p).Top > bestZ) { best = p; bestZ = Support.Extent(p).Top; }
+        }
+        return best ?? b.Pieces.MinBy(p => (new Point(p.X, p.Y) - w).Length);
+    }
+
+    static bool Contains(Point[] poly, Point w)
+    {
+        bool inside = false;
+        for (int i = 0, j = poly.Length - 1; i < poly.Length; j = i++)
+            if ((poly[i].Y > w.Y) != (poly[j].Y > w.Y) && w.X < (poly[j].X - poly[i].X) * (w.Y - poly[i].Y) / (poly[j].Y - poly[i].Y) + poly[i].X)
+                inside = !inside;
+        return inside;
+    }
+
     /// <summary>Nur diese Ebene (Z) des ausgewählten Gebäudes hervorheben; null = alle.</summary>
-    public double? Level { get => _level; set { _level = value; InvalidateVisual(); } }
-    double? _level;
+    /// <summary>Nur dieses Stockwerk (ab 0, wie <see cref="Support.Levels"/>) des ausgewählten Gebäudes hervorheben; null = alle.</summary>
+    public int? Level { get => _level; set { _level = value; InvalidateVisual(); } }
+    int? _level;
+
+    /// <summary>Stockwerk je Bauteil eines Gebäudes, dieselbe Zählung wie Einfärbung und Bauteil-Info.</summary>
+    public Dictionary<BuildingPiece, int> PieceLevels(MapBuilding b) => GeometryFor(b).Levels;
 
     public bool ShowPlaceables { get; set; } = true;
     public bool ShowFigures { get; set; } = true;
@@ -150,6 +225,7 @@ sealed class MapView : FrameworkElement
         _objects = objects;
         _isSelectedMod = isSelectedMod;
         _geometry.Clear();
+        _openings.Clear();
         SelectedBuilding = selectedBuilding != null ? buildings.FirstOrDefault(b => b.Id == selectedBuilding) : null;
         SelectedObject = selectedObject != null ? objects.FirstOrDefault(o => o.Object.Id == selectedObject) : null;
         if (!keepView || !_hasView) _hasView = false; // beim nächsten Zeichnen alles einpassen
@@ -161,6 +237,7 @@ sealed class MapView : FrameworkElement
     public void RefreshColors()
     {
         _geometry.Clear();
+        _openings.Clear();
         InvalidateVisual();
     }
 
@@ -234,6 +311,7 @@ sealed class MapView : FrameworkElement
     {
         SelectedBuilding = _buildings.FirstOrDefault(b => b.Id == id);
         SelectedObject = SelectedBuilding == null ? _objects.FirstOrDefault(o => o.Object.Id == id) : null;
+        SelectedPiece = null;
         _level = null;
         ZoomToSelection();
         SelectionChanged?.Invoke();
@@ -354,6 +432,7 @@ sealed class MapView : FrameworkElement
 
         SelectedObject = null;
         SelectedBuilding = null;
+        SelectedPiece = null;
         _level = null;
 
         double best = 8;
@@ -376,6 +455,7 @@ sealed class MapView : FrameworkElement
                 if (d < bestDist) { bestDist = d; SelectedBuilding = b; }
             }
             if (bestDist > tolerance * 2) SelectedBuilding = null;
+            if (SelectedBuilding is { } sb) SelectedPiece = PieceAt(sb, w);
         }
         SelectionChanged?.Invoke();
     }
@@ -479,15 +559,31 @@ sealed class MapView : FrameworkElement
             bool faded = SelectedBuilding == b && _level != null;
             if (faded) dc.PushOpacity(0.18);
             DrawPieces(dc, owner, g.Layers, OnlyMods);
+            if (!faded) DrawOpenings(dc, OpeningsFor(b));
             if (faded)
             {
                 dc.Pop();
                 DrawPieces(dc, owner, LevelGeometry(b), OnlyMods);
+                DrawOpenings(dc, Openings(b.Pieces.Where(p => _level is { } l && g.Levels.GetValueOrDefault(p) == l)));
             }
             if (b == SelectedBuilding)
             {
                 var sel = Inflated(b.Bounds, Grid / 2);
                 dc.DrawRectangle(null, new Pen(SelectionPen.Brush, 2 / _scale), sel);
+                if (SelectedPiece is { } sp)
+                {
+                    // Umriss des ausgewählten Bauteils, kräftig und unabhängig vom Zoom gut sichtbar
+                    var outline = new StreamGeometry();
+                    using (var ctx = outline.Open())
+                    {
+                        var pts = Outline(sp);
+                        ctx.BeginFigure(pts[0], isFilled: false, isClosed: true);
+                        ctx.PolyLineTo(pts[1..], isStroked: true, isSmoothJoin: true);
+                    }
+                    outline.Freeze();
+                    dc.DrawGeometry(null, new Pen(Brushes.White, 6 / _scale), outline);
+                    dc.DrawGeometry(null, new Pen(SelectionPen.Brush, 3 / _scale), outline);
+                }
             }
             dc.Pop();
         }
@@ -498,10 +594,12 @@ sealed class MapView : FrameworkElement
         {
             if (!view.Contains(o.Object.X, o.Object.Y)) continue;
             var (a, b) = FenceEnds(o.Object);
+            // Türflügel dünn, damit der Durchlass erkennbar bleibt
+            double width = IsDoorObject(o.Object) ? Math.Max(1, lineWidth * 0.35) : lineWidth;
             var color = Status(o) switch { 2 => SelectedModEdge, 1 => ModEdge, _ => Darken(((SolidColorBrush)OwnerBrush(o.Owner)).Color, 0.55) };
-            if (o == SelectedObject) dc.DrawLine(LinePen(((SolidColorBrush)SelectionPen.Brush).Color, lineWidth + 4), ToScreen(a), ToScreen(b));
-            dc.DrawLine(LinePen(color, lineWidth), ToScreen(a), ToScreen(b));
-            if (Status(o) != 0) dc.DrawLine(LinePen(((SolidColorBrush)(Status(o) == 2 ? SelectedModBrush : ModBrush)).Color, Math.Max(1, lineWidth - 2)), ToScreen(a), ToScreen(b));
+            if (o == SelectedObject) dc.DrawLine(LinePen(((SolidColorBrush)SelectionPen.Brush).Color, width + 4), ToScreen(a), ToScreen(b));
+            dc.DrawLine(LinePen(color, width), ToScreen(a), ToScreen(b));
+            if (Status(o) != 0) dc.DrawLine(LinePen(((SolidColorBrush)(Status(o) == 2 ? SelectedModBrush : ModBrush)).Color, Math.Max(1, width - 2)), ToScreen(a), ToScreen(b));
         }
 
         foreach (var o in VisibleObjects())
@@ -630,6 +728,7 @@ sealed class MapView : FrameworkElement
     {
         double px = 1 / _scale;                         // ein Bildschirmpixel in Welteinheiten
         double lineWidth = Math.Max(20, 2.2 * px);       // Wände und Zäune nie dünner als gut 2 Pixel
+        double postWidth = Math.Max(PillarSize, 3.5 * px); // Pfeiler nie kleiner als gut 3 Pixel
         bool outlines = Grid * _scale >= 14;             // Umrisse erst, wenn ein Rasterfeld groß genug ist
         foreach (var l in layers)
         {
@@ -637,11 +736,14 @@ sealed class MapView : FrameworkElement
             if (fade) dc.PushOpacity(0.25);
             var fill = l.Status switch { 1 => ((SolidColorBrush)ModBrush).Color, 2 => ((SolidColorBrush)SelectedModBrush).Color, 3 => ((SolidColorBrush)RiskBrush).Color, _ => Lighten(owner, l.Level) };
             var edge = l.Status switch { 1 => ModEdge, 2 => SelectedModEdge, 3 => RiskEdge, _ => Darken(fill, 0.62) };
-            if (l.Line)
+            if (l.Draw != PieceDraw.Area)
             {
-                // Farbige Linien bekommen einen dunklen Rand: erst breit in Randfarbe, dann schmaler darüber
-                if (l.Status != 0) dc.DrawGeometry(null, LinePen(edge, lineWidth + 3 * px), l.Geometry);
-                dc.DrawGeometry(null, LinePen(l.Status == 0 ? Darken(fill, 0.55) : fill, lineWidth), l.Geometry);
+                // Wände, Zäune und Pfeiler dunkel. Farbige bekommen einen dunklen Rand: erst breit in
+                // Randfarbe, dann schmaler darüber. Pfeiler sind ein ganz kurzer Strich mit eckigen
+                // Enden, also ein Quadrat in Strichbreite, gedreht wie das Teil
+                double width = l.Draw == PieceDraw.Post ? postWidth : lineWidth;
+                if (l.Status != 0) dc.DrawGeometry(null, LinePen(edge, width + 3 * px), l.Geometry);
+                dc.DrawGeometry(null, LinePen(l.Status == 0 ? Darken(fill, 0.55) : fill, width), l.Geometry);
             }
             else
             {
@@ -652,14 +754,23 @@ sealed class MapView : FrameworkElement
         }
     }
 
-    /// <summary>Enden eines Zauns: er steht quer zu seiner Blickrichtung, gut 240 Einheiten lang.</summary>
+    /// <summary>
+    /// Enden eines Zauns, Tors oder einer Tür, gut 240 Einheiten lang. Zäune stehen quer zu ihrer
+    /// Blickrichtung; Türen und Tore sind gegenüber ihrem Rahmen um 90° gedreht gespeichert (bei allen
+    /// 25 im Testspielstand), liegen also in Blickrichtung.
+    /// </summary>
     static (Point A, Point B) FenceEnds(WorldObject o)
     {
         double a = o.Yaw * Math.PI / 180;
-        var d = new Vector(-Math.Sin(a), Math.Cos(a)) * 120;
+        bool door = IsDoorObject(o);
+        // Türflügel füllen nur die Lücke im Rahmen, Zäune die ganze Länge
+        double half = door ? OpeningOf(o.Class) / 2 - 4 : 120;
+        var d = (door ? new Vector(Math.Cos(a), Math.Sin(a)) : new Vector(-Math.Sin(a), Math.Cos(a))) * half;
         var c = new Point(o.X, o.Y);
         return (c - d, c + d);
     }
+
+    static bool IsDoorObject(WorldObject o) => OpeningOf(o.Class) > 0;
 
     static Pen LinePen(Color c, double width) => new(new SolidColorBrush(c), width) { StartLineCap = PenLineCap.Square, EndLineCap = PenLineCap.Square };
 
@@ -697,6 +808,45 @@ sealed class MapView : FrameworkElement
 
     static NumberFormatInfo Numbers => L.Numbers;
 
+    Geometry OpeningsFor(MapBuilding b)
+    {
+        if (!_openings.TryGetValue(b.Id, out var g)) _openings[b.Id] = g = Openings(b.Pieces);
+        return g;
+    }
+
+    /// <summary>Durchgänge (Türen, Tore, Bögen) als kurze Striche in der Lücke ihres Wandteils.</summary>
+    static Geometry Openings(IEnumerable<BuildingPiece> pieces)
+    {
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+            foreach (var p in pieces)
+            {
+                double gap = OpeningOf(p.Class) / 2;
+                if (gap <= 0 || DrawOf(Shape(p.Class)) != PieceDraw.Line) continue;
+                double a = p.Yaw * Math.PI / 180;
+                var along = new Vector(-Math.Sin(a), Math.Cos(a));
+                var c = new Point(p.X, p.Y);
+                ctx.BeginFigure(c - along * gap, isFilled: false, isClosed: false);
+                ctx.LineTo(c + along * gap, isStroked: true, isSmoothJoin: false);
+            }
+        geometry.Freeze();
+        return geometry;
+    }
+
+    /// <summary>
+    /// Durchgänge obenauf als heller Schlitz in der Wandlinie: Über Türen stehen oft Wände eines
+    /// höheren Stockwerks, deren Linie die Lücke in der Draufsicht sonst verdecken würde.
+    /// </summary>
+    void DrawOpenings(DrawingContext dc, Geometry openings)
+    {
+        double px = 1 / _scale;
+        double width = Math.Max(20, 2.2 * px) * 0.55;
+        var pen = new Pen(OpeningBrush, width) { StartLineCap = PenLineCap.Flat, EndLineCap = PenLineCap.Flat };
+        dc.DrawGeometry(null, pen, openings);
+    }
+
+    static readonly Brush OpeningBrush = Frozen(Color.FromArgb(0xE6, 0xF7, 0xF6, 0xF2));
+
     (List<PieceLayer> Layers, HashSet<BuildingPiece> Risk, Dictionary<BuildingPiece, int> Levels) GeometryFor(MapBuilding b)
     {
         if (_geometry.TryGetValue(b.Id, out var g)) return g;
@@ -713,7 +863,7 @@ sealed class MapView : FrameworkElement
     List<PieceLayer> LevelGeometry(MapBuilding b)
     {
         var g = GeometryFor(b);
-        return Build(b.Pieces.Where(p => _level is { } l && Math.Abs(p.Z - l) < Grid / 2), g.Risk, g.Levels);
+        return Build(b.Pieces.Where(p => _level is { } l && g.Levels.GetValueOrDefault(p) == l), g.Risk, g.Levels);
     }
 
     int PieceStatus(BuildingPiece p, HashSet<BuildingPiece> risk) =>
@@ -725,8 +875,8 @@ sealed class MapView : FrameworkElement
     {
         var layers = new List<PieceLayer>();
         foreach (var group in pieces
-            .GroupBy(p => (Level: levels.GetValueOrDefault(p), Status: PieceStatus(p, risk), Line: IsLine(Shape(p.Class))))
-            .OrderBy(g => g.Key.Level).ThenBy(g => g.Key.Line).ThenBy(g => StatusOrder[g.Key.Status]))
+            .GroupBy(p => (Level: levels.GetValueOrDefault(p), Status: PieceStatus(p, risk), Draw: DrawOf(Shape(p.Class))))
+            .OrderBy(g => g.Key.Level).ThenBy(g => g.Key.Draw).ThenBy(g => StatusOrder[g.Key.Status]))
         {
             var geometry = new StreamGeometry();
             using (var ctx = geometry.Open())
@@ -735,14 +885,18 @@ sealed class MapView : FrameworkElement
             // „ausstanzen“, wie es die Standard-Füllregel (gerade/ungerade) täte
             geometry.FillRule = FillRule.Nonzero;
             geometry.Freeze();
-            layers.Add(new PieceLayer(group.Key.Level, group.Key.Status, group.Key.Line, geometry));
+            layers.Add(new PieceLayer(group.Key.Level, group.Key.Status, group.Key.Draw, geometry));
         }
         return layers;
     }
 
     bool IsSelectedModPiece(BuildingPiece p) => ModPaths.FolderOf(p.Class) is { } f && _isSelectedMod(f);
 
-    static bool IsLine(PieceShape s) => s == PieceShape.Wall;
+    static PieceDraw DrawOf(PieceShape s) => s switch { PieceShape.Wall => PieceDraw.Line, PieceShape.Pillar => PieceDraw.Post, _ => PieceDraw.Area };
+
+    const double PillarSize = 44; // Kantenlänge eines Pfeilers, geschätzt
+
+    static bool ShortHas(string cls, string part) => SaveGame.ShortClass(cls).Contains(part, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Ordnet ein Bauteil anhand seines Klassennamens einer einfachen Form zu.</summary>
     public static PieceShape Shape(string cls) => Support.KindOf(cls) switch
@@ -751,8 +905,21 @@ sealed class MapView : FrameworkElement
         PieceKind.Wall or PieceKind.Fence => PieceShape.Wall,
         PieceKind.FenceFoundation => PieceShape.FenceFoundation,
         PieceKind.Bridge => PieceShape.Bridge,
-        _ => SaveGame.ShortClass(cls).Contains("triangle", StringComparison.OrdinalIgnoreCase) ? PieceShape.Triangle : PieceShape.Square,
+        // Dach-Keile füllen die dreieckige Lücke zwischen zwei Dachreihen, die um 60° gegeneinander
+        // gedreht sind: Basis durch den Drehpunkt, Spitze in Blickrichtung, bei „Inverted“ entgegen.
+        // Errechnet aus den Ecken der Nachbardächer an der Argos-Sternwarte.
+        _ when ShortHas(cls, "wedge") && ShortHas(cls, "roof") => ShortHas(cls, "inverted") ? PieceShape.RoofTriangleFlipped : PieceShape.RoofTriangle,
+        // Andere Keile (Aesir-Langhaus) sind flache Dreiecke mit dem Drehpunkt in der Mitte:
+        // Ihre Nachbarn liegen wie bei Dreiecksdecken bei 90°, 210° und 330°
+        _ when ShortHas(cls, "wedge") => PieceShape.Triangle,
+        _ => ShortHas(cls, "triangle")
+            ? ShortHas(cls, "roof") ? ShortHas(cls, "flipped") ? PieceShape.RoofTriangleFlipped : PieceShape.RoofTriangle : PieceShape.Triangle
+            : PieceShape.Square,
     };
+
+    const double TriangleRadius = Grid / 1.7320508075688772 - 6; // Umkreis des Dreiecks mit Seite 256, minus Fuge
+    const double TriangleEdge = Grid / 2 - 6;                     // halbe Seite, minus Fuge
+    const double TriangleHeight = Grid * 0.8660254037844386 - 9;  // Höhe des Dreiecks, minus Fuge
 
     /// <summary>Umriss eines Bauteils in der Draufsicht (Weltkoordinaten); Wände und Zäune als schmales Rechteck.</summary>
     static Point[] Outline(BuildingPiece p)
@@ -760,30 +927,81 @@ sealed class MapView : FrameworkElement
         double a = p.Yaw * Math.PI / 180, cos = Math.Cos(a), sin = Math.Sin(a);
         // Lokale Koordinaten drehen und an die Position schieben
         Point T(double lx, double ly) => new(p.X + lx * cos - ly * sin, p.Y + lx * sin + ly * cos);
+        Point Corner(double deg) => T(TriangleRadius * Math.Cos(deg * Math.PI / 180), TriangleRadius * Math.Sin(deg * Math.PI / 180));
         return Shape(p.Class) switch
         {
             PieceShape.Wall => [T(-10, -Grid / 2), T(10, -Grid / 2), T(10, Grid / 2), T(-10, Grid / 2)],
-            PieceShape.Pillar => [T(-22, -22), T(22, -22), T(22, 22), T(-22, 22)],
+            PieceShape.Pillar => [T(-PillarSize / 2, -PillarSize / 2), T(PillarSize / 2, -PillarSize / 2), T(PillarSize / 2, PillarSize / 2), T(-PillarSize / 2, PillarSize / 2)],
             // Zaunfundament: schmaler Balken unter dem Zaun
-            // Brücke: Drehpunkt am Ende, sie reicht in Blickrichtung
-            PieceShape.Bridge => [T(0, -100), T(Support.BridgeLength(p.Class), -100), T(Support.BridgeLength(p.Class), 100), T(0, 100)],
+            // Brücke: 256 breit, vom Drehpunkt 128 nach hinten und bis zu 640 in Blickrichtung
+            PieceShape.Bridge => BridgeOutline(p.Class, T),
             PieceShape.FenceFoundation => [T(-40, -Grid / 2 + 2), T(40, -Grid / 2 + 2), T(40, Grid / 2 - 2), T(-40, Grid / 2 - 2)],
-            // Gleichseitiges Dreieck, Seitenlänge 256, Mittelpunkt im Schwerpunkt
-            PieceShape.Triangle => [T(Grid / Math.Sqrt(3), 0), T(-Grid / (2 * Math.Sqrt(3)), Grid / 2), T(-Grid / (2 * Math.Sqrt(3)), -Grid / 2)],
+            // Gleichseitiges Dreieck, Seitenlänge 256, Drehpunkt im Schwerpunkt. Laut Spielstand liegen die
+            // Nachbarn (Kanten) in lokaler Richtung 90°, 210° und 330°, die Spitzen also bei 30°, 150° und 270°;
+            // leicht verkleinert wie die Quadrate, damit die Fugen sichtbar bleiben
+            PieceShape.Triangle => [Corner(30), Corner(150), Corner(270)],
+            // Schräges Dreiecksdach: Drehpunkt mitten auf einer Kante, die Spitze 222 Einheiten in
+            // Blickrichtung, bei „Flipped“ entgegen. Gemessen an Dächern über Dreiecksdecken und an einem
+            // runden Bau, bei dem Flipped-Dächer von der Wandkrone nach außen auf Bodendreiecke abfallen
+            PieceShape.RoofTriangle => [T(3, -TriangleEdge), T(3, TriangleEdge), T(TriangleHeight, 0)],
+            PieceShape.RoofTriangleFlipped => [T(-3, -TriangleEdge), T(-3, TriangleEdge), T(-TriangleHeight, 0)],
             _ => [T(-Grid / 2 + 4, -Grid / 2 + 4), T(Grid / 2 - 4, -Grid / 2 + 4), T(Grid / 2 - 4, Grid / 2 - 4), T(-Grid / 2 + 4, Grid / 2 - 4)],
         };
     }
 
+    /// <summary>
+    /// Breite des Durchgangs in einem Wand- oder Zaunteil, für die Lücke in der Linie: Türen 128,
+    /// Tore 192, Bögen 160; 0 = geschlossen. Die Maße sind geschätzt. Fenster bleiben bewusst
+    /// geschlossen: Ganze Glashäuser bestehen aus „Fensterwänden“ und sähen sonst wie Zäune aus.
+    /// </summary>
+    static double OpeningOf(string cls)
+    {
+        var c = SaveGame.ShortClass(cls).ToLowerInvariant();
+        if (c.Contains("gate")) return 192;
+        if (c.Contains("door")) return 128;
+        if (c.Contains("arch") && !c.Contains("archer")) return 160;
+        return 0;
+    }
+
+    static Point[] BridgeOutline(string cls, Func<double, double, Point> T)
+    {
+        var (from, to) = Support.BridgeSpan(cls);
+        double h = Grid / 2 - 4;
+        return [T(from + 4, -h), T(to - 4, -h), T(to - 4, h), T(from + 4, h)];
+    }
+
     static void AddPiece(StreamGeometryContext ctx, BuildingPiece p)
     {
-        if (IsLine(Shape(p.Class)))
+        var draw = DrawOf(Shape(p.Class));
+        if (draw == PieceDraw.Post)
         {
-            // Wand oder Zaun als Mittellinie; die Breite kommt beim Zeichnen vom Stift
-            double a = p.Yaw * Math.PI / 180, cos = Math.Cos(a), sin = Math.Sin(a);
-            var d = new Vector(-Grid / 2 * sin, Grid / 2 * cos);
+            // Pfeiler: winziger Strich in Blickrichtung, die Stiftbreite macht daraus ein Quadrat
+            double a = p.Yaw * Math.PI / 180;
+            var d = new Vector(Math.Cos(a), Math.Sin(a)) * 0.5;
             var c = new Point(p.X, p.Y);
             ctx.BeginFigure(c - d, isFilled: false, isClosed: false);
             ctx.LineTo(c + d, isStroked: true, isSmoothJoin: false);
+            return;
+        }
+        if (draw == PieceDraw.Line)
+        {
+            // Wand oder Zaun als Mittellinie; die Breite kommt beim Zeichnen vom Stift.
+            // Türen, Tore und Bögen bekommen in der Mitte eine Lücke.
+            double a = p.Yaw * Math.PI / 180, cos = Math.Cos(a), sin = Math.Sin(a);
+            var along = new Vector(-sin, cos);
+            var c = new Point(p.X, p.Y);
+            double gap = OpeningOf(p.Class) / 2;
+            if (gap <= 0)
+            {
+                ctx.BeginFigure(c - along * (Grid / 2), isFilled: false, isClosed: false);
+                ctx.LineTo(c + along * (Grid / 2), isStroked: true, isSmoothJoin: false);
+                return;
+            }
+            // Die eckigen Linienenden ragen noch etwas in die Lücke; deshalb sind die Maße großzügig
+            ctx.BeginFigure(c - along * (Grid / 2), isFilled: false, isClosed: false);
+            ctx.LineTo(c - along * gap, isStroked: true, isSmoothJoin: false);
+            ctx.BeginFigure(c + along * gap, isFilled: false, isClosed: false);
+            ctx.LineTo(c + along * (Grid / 2), isStroked: true, isSmoothJoin: false);
             return;
         }
         var pts = Outline(p);
@@ -840,7 +1058,7 @@ sealed class MapView : FrameworkElement
                     + (ModPaths.FolderOf(p.Class) is { } f ? $" [{f}]" : "")
                     + (status == 3 ? " – " + L.T("steht nur auf Teilen angehakter Mods") : "")
                     + " · Z " + p.Z.ToString("N0", Numbers);
-                items.Add((Across(center), new SectionItem(s.Min(), s.Max(), z0, z1, fill, edge, false, label, MarkerFor(status))));
+                items.Add((Across(center), new SectionItem(s.Min(), s.Max(), z0, z1, fill, edge, false, label, MarkerFor(status), b, p)));
             }
         }
         foreach (var o in VisibleObjects())
@@ -856,10 +1074,15 @@ sealed class MapView : FrameworkElement
                 var (a, b) = FenceEnds(o.Object);
                 double sa = Along(a), sb = Along(b);
                 var color = status == 0 ? Frozen(Darken(((SolidColorBrush)OwnerBrush(o.Owner)).Color, 0.55)) : fill;
-                items.Add((Across(pt), new SectionItem(Math.Min(sa, sb), Math.Max(sa, sb), o.Object.Z, o.Object.Z + 192, color, null, false, label, MarkerFor(status))));
+                // Zäune stehen mit dem Fuß am Bezugspunkt. Türen und Tore haben ihn etwa auf halber Höhe
+                // (Türen 20 unter der Rahmenmitte, Tore in der Rahmenmitte), sie reichen also bis zum Boden.
+                double bottom = !IsDoorObject(o.Object) ? o.Object.Z
+                    : o.Object.Z - (SaveGame.ShortClass(o.Object.Class).Contains("gate", StringComparison.OrdinalIgnoreCase) ? 128 : 108);
+                double top = IsDoorObject(o.Object) ? bottom + 220 : bottom + 192;
+                items.Add((Across(pt), new SectionItem(Math.Min(sa, sb), Math.Max(sa, sb), bottom, top, color, null, false, label, MarkerFor(status), Object: o)));
                 continue;
             }
-            items.Add((Across(pt), new SectionItem(s, s, o.Object.Z, o.Object.Z, fill, DotPen, true, label, MarkerFor(status))));
+            items.Add((Across(pt), new SectionItem(s, s, o.Object.Z, o.Object.Z, fill, DotPen, true, label, MarkerFor(status), Object: o)));
         }
         return items.OrderBy(i => i.Depth).Select(i => i.Item).ToList();
     }

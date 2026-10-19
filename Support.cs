@@ -22,13 +22,19 @@ static class Support
         var c = SaveGame.ShortClass(cls).ToLowerInvariant();
         if (c.Contains("bridge")) return PieceKind.Bridge;
         if (c.Contains("fencefoundation")) return PieceKind.FenceFoundation;
-        if (c.Contains("pillar")) return PieceKind.Pillar;
+        // Zäune und Tore vor den Pfeilern: Das Stall-Set heißt z. B. BuildFence_T3_StablePillars
         if (c.Contains("fence") || c.Contains("palisade")) return PieceKind.Fence;
+        if (c.Contains("gate") || c.Contains("door")) return PieceKind.Wall;
+        // Streben tragen wie Pfeiler, heißen aber anders
+        if (c.Contains("pillar") || c.Contains("strut")) return PieceKind.Pillar;
         if (c.Contains("ceiling")) return PieceKind.Ceiling;
         if (c.Contains("foundation") || c.Contains("fundation")) return PieceKind.Foundation;
+        // Dächer vor den Wänden: Dachfenster heißen z. B. BuildRoof_Sloped_Window
+        if (c.Contains("roof")) return PieceKind.Roof;
+        // Keile ohne „Roof“ im Namen sind Dreiecksdecken (Aesir-Langhaus)
+        if (c.Contains("wedge")) return PieceKind.Ceiling;
         if (c.Contains("wall") || c.Contains("door") || c.Contains("gate") || c.Contains("window")
-            || c.Contains("railing") || c.Contains("crenel")) return PieceKind.Wall;
-        if (c.Contains("roof") || c.Contains("wedge")) return PieceKind.Roof;
+            || c.Contains("railing") || c.Contains("crenel") || c.Contains("beam")) return PieceKind.Wall;
         if (c.Contains("stair") || c.Contains("ramp")) return PieceKind.Stair;
         // Dreiecke ohne nähere Angabe sind meist Fundamente
         if (c.Contains("triangle")) return PieceKind.Foundation;
@@ -56,11 +62,13 @@ static class Support
     };
 
     /// <summary>
-    /// Länge eines Brückenteils ab seinem Drehpunkt, der an einem Ende liegt. Gemessen an der
-    /// langen Hängebrücke (zwei Teile treffen sich nach gut 640 Einheiten an den Pfeilern);
-    /// für andere Brücken ist das eine Schätzung.
+    /// Ausdehnung eines Brückenteils in Blickrichtung, vom Drehpunkt aus. Gemessen an der langen
+    /// Hängebrücke: Sie ist drei Rasterfelder lang und 256 breit, der Drehpunkt liegt in der Mitte
+    /// des ersten Felds (128 dahinter beginnt die Decke bzw. Treppe, nach 640 treffen sich zwei Teile
+    /// an den Pfeilern). Für andere Brücken ist die Länge eine Schätzung (zwei Felder).
     /// </summary>
-    public static double BridgeLength(string cls) => cls.Contains("long", StringComparison.OrdinalIgnoreCase) ? 640 : 384;
+    public static (double From, double To) BridgeSpan(string cls) =>
+        cls.Contains("long", StringComparison.OrdinalIgnoreCase) ? (-128, 640) : (-128, 384);
 
     /// <summary>Platzierte Objekte, die wie eine Wand quer stehen: Zäune, Palisaden, Tore und Türen.</summary>
     public static bool IsFenceObject(string cls)

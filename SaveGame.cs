@@ -43,6 +43,12 @@ sealed class SaveGame
     /// <summary>Objekt-ID → Namen der Eigenschaften, deren Binärdaten einen Mod-Pfad enthalten (je Mod-Ordner).</summary>
     public Dictionary<string, Dictionary<long, HashSet<string>>> PropertyRefs { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Attributpunkte je Spielerfigur (AttributePointsTotal, …Distributed, …Undistributed).</summary>
+    public Dictionary<long, Dictionary<string, int>> AttributePoints { get; } = [];
+
+    /// <summary>Komponenten mit gespeicherten Daten je Spielerfigur (Name vor dem Punkt, z. B. BP_ProgressionSystem_C).</summary>
+    public Dictionary<long, HashSet<string>> CharacterComponents { get; } = [];
+
     public static SaveGame Load(string dbPath)
     {
         var cs = new SqliteConnectionStringBuilder { DataSource = dbPath, Mode = SqliteOpenMode.ReadOnly }.ToString();
@@ -170,6 +176,21 @@ sealed class SaveGame
     /// <summary>Merkt sich, welche Mod-Ordner in den Binärdaten einer Eigenschaft vorkommen.</summary>
     void ScanProperty(long objectId, string name, byte[] value)
     {
+        if (Characters.ContainsKey(objectId))
+        {
+            int dot = name.IndexOf('.');
+            if (dot > 0)
+            {
+                if (!CharacterComponents.TryGetValue(objectId, out var comps)) CharacterComponents[objectId] = comps = [];
+                comps.Add(name[..dot]);
+            }
+            // Ganzzahl ganz am Ende des Werts
+            if (name.StartsWith("BP_ProgressionSystem_C.AttributePoints", StringComparison.Ordinal) && value.Length >= 4)
+            {
+                if (!AttributePoints.TryGetValue(objectId, out var points)) AttributePoints[objectId] = points = [];
+                points[name[(dot + 1)..]] = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(value.AsSpan(value.Length - 4));
+            }
+        }
         if (name.EndsWith(".ThrallName", StringComparison.Ordinal) || name.EndsWith(".PetName", StringComparison.Ordinal))
         {
             if (TrailingString(value) is { Length: > 0 } n) FigureNames[objectId] = n;

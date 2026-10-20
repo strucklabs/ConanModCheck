@@ -5,28 +5,54 @@ namespace ConanModCheck.Gui;
 /// <summary>
 /// Baut das Verzeichnis: alle Objekte (auch Behälter, die es nicht mehr gibt) und alle Item-Arten,
 /// jeweils mit Fundstellen, Besitzern und Koordinaten. Gegenstück zum Besitz-Baum: dort „wer hat
-/// was“, hier „was ist wo“.
+/// was“, hier „was ist wo“. Geordnet nach Herkunft (Grundspiel, je Mod, Sonderknoten), darunter bei
+/// Objekten nach Namen; eine Namensgruppe mit nur einem Eintrag entfällt.
 /// </summary>
 sealed class DirectoryBuilder(SaveGame save, ItemNames names, ItemOrigin origin, Func<string, bool> folderSelected, Func<string, bool> modSelected)
 {
+    // Sonderknoten der obersten Ebene (Mod-Ordner können keine Steuerzeichen enthalten)
+    const string PlayersKey = "\u0001players", GoneKey = "\u0001gone", UnknownKey = "\u0001unknown";
+
     // ---------- Objekte ----------
 
+    /// <summary>Alle Objekt-Einträge (unterste Ebene der Gruppierung, noch ohne Baum).</summary>
     public List<DirEntry> Objects()
     {
         var list = new List<DirEntry>();
-        foreach (var o in save.Objects.Values) list.Add(ObjectEntry(o));
+        foreach (var o in save.Objects.Values) list.AddRange(ObjectEntries(o));
         // Spieler ohne Position und Behälter, die es nicht mehr gibt, aber noch Items haben
         foreach (var (id, name) in save.Characters.Where(c => !save.Objects.ContainsKey(c.Key)))
             list.Add(PlayerEntry(id, null));
         foreach (var id in save.ItemsByOwner.Keys.Where(id => !save.Objects.ContainsKey(id) && !save.Characters.ContainsKey(id)))
-            list.Add(new DirEntry(L.F("Behälter {0} – existiert nicht mehr", id), ItemsStatus(id), null, () => Contents(id))
-                { ObjectId = id, SearchText = $"{id}" });
-        return Sorted(list);
+        {
+            var text = L.F("Behälter {0} – existiert nicht mehr", id);
+            list.Add(new DirEntry(text, ItemsStatus(id), null, () => Contents(id))
+                { ObjectId = id, SearchText = $"{id}", Origin = GoneKey, Group = text, IsLeaf = true });
+        }
+        return list;
     }
 
-    DirEntry ObjectEntry(WorldObject o)
+    /// <summary>
+    /// Eintrag eines Objekts, bei Gebäuden aus mehreren Herkünften zusätzlich Zweiteinträge: Ein gemischtes
+    /// Gebäude steht beim Grundspiel und bei jeder Mod, deren Teile darin verbaut sind.
+    /// </summary>
+    IEnumerable<DirEntry> ObjectEntries(WorldObject o)
     {
-        if (save.Characters.ContainsKey(o.Id)) return PlayerEntry(o.Id, o);
+        if (save.Characters.ContainsKey(o.Id)) { yield return PlayerEntry(o.Id, o); yield break; }
+        if (!save.Pieces.TryGetValue(o.Id, out var pieces)) { yield return ObjectEntry(o, ModPaths.FolderOf(o.Class) ?? "", true); yield break; }
+        var folders = pieces.Select(p => ModPaths.FolderOf(p.Class)).OfType<string>()
+            .GroupBy(f => f, StringComparer.OrdinalIgnoreCase).OrderByDescending(g => g.Count()).Select(g => g.Key).ToList();
+        var origins = pieces.Any(p => ModPaths.FolderOf(p.Class) == null) ? folders.Prepend("") : folders;
+        bool first = true;
+        foreach (var origin in origins)
+        {
+            yield return ObjectEntry(o, origin, first);
+            first = false;
+        }
+    }
+
+    DirEntry ObjectEntry(WorldObject o, string origin, bool primary)
+    {
         var folder = ModPaths.FolderOf(o.Class);
         bool building = save.Pieces.TryGetValue(o.Id, out var pieces);
         string name = building ? L.F("Gebäude {0} – {1} Bauteile", o.Id, pieces!.Count)
@@ -49,6 +75,11 @@ sealed class DirectoryBuilder(SaveGame save, ItemNames names, ItemOrigin origin,
             ObjectId = o.Id,
             OwnStatus = own > 0,
             SearchText = $"{text} {SaveGame.ShortClass(o.Class)}",
+            Origin = origin,
+            // Gebäude unter „Gebäude“, Figuren mit eigenem Namen unter diesem, sonst nach Art des Objekts
+            Group = building ? L.T("Gebäude") : save.FigureNames.TryGetValue(o.Id, out var gn) ? gn : Ownership.PrettyClass(o.Class),
+            Primary = primary,
+            IsLeaf = true,
         };
     }
 
@@ -56,7 +87,7 @@ sealed class DirectoryBuilder(SaveGame save, ItemNames names, ItemOrigin origin,
     {
         var text = save.OwnerName(id) + $" (ID {id})";
         return new DirEntry(text, ItemsStatus(id), o, () => Contents(id))
-            { ObjectId = id, Weight = FontWeights.SemiBold, SearchText = text };
+            { ObjectId = id, Weight = FontWeights.SemiBold, SearchText = text, Origin = PlayersKey, Group = text, IsLeaf = true };
     }
 
     IEnumerable<DirEntry> ObjectDetails(WorldObject o, string? folder, long? owner, List<BuildingPiece>? pieces)
@@ -96,19 +127,11 @@ sealed class DirectoryBuilder(SaveGame save, ItemNames names, ItemOrigin origin,
         }
     }
 
-    static string InventoryName(bool character, long invType) => !character
-        ? (invType == 4 || invType == 0 ? L.T("Inhalt") : L.F("Inventar-Typ {0}", invType))
-        : invType switch
-        {
-            0 => L.T("Inventar"),
-            1 => L.T("Ausrüstung"),
-            2 => L.T("Schnellleiste"),
-            6 => L.T("Erlernt"),
-            _ => L.F("Inventar-Typ {0}", invType),
-        };
+    static string InventoryName(bool character, long invType) => InventoryKinds.Name(character, invType);
 
     // ---------- Items ----------
 
+    /// <summary>Alle Item-Arten (unterste Ebene, noch ohne Baum); Herkunft Grundspiel, geladene Mod oder unbekannt.</summary>
     public List<DirEntry> Items()
     {
         var list = new List<DirEntry>();
@@ -118,11 +141,58 @@ sealed class DirectoryBuilder(SaveGame save, ItemNames names, ItemOrigin origin,
             int total = places.Sum(i => i.Quantity);
             int count = places.Select(i => i.OwnerId).Distinct().Count();
             string text = names.Label(g.Key) + " – " + (count == 1 ? L.F("{0:N0} Stück an einer Stelle", total) : L.F("{0:N0} Stück an {1:N0} Stellen", total, count)) + ModTag(g.Key);
+            string from = origin.IsFromLoadedMod(g.Key) ? origin.ModTag(g.Key)! : origin.ModTag(g.Key) != null || !origin.CanTellGameItems ? UnknownKey : "";
             list.Add(new DirEntry(text, ItemStatus(g.Key), null, () => ItemPlaces(places))
-                { ItemId = g.Key, OwnStatus = true, SearchText = text });
+                { ItemId = g.Key, OwnStatus = true, SearchText = text, Origin = from, IsLeaf = true });
+        }
+        return list;
+    }
+
+    // ---------- Baum ----------
+
+    /// <summary>
+    /// Ordnet (schon gefilterte) Einträge zum Baum: oben Grundspiel, die Mods alphabetisch, dann Spieler,
+    /// verschwundene Behälter und unbekannte Herkunft; darunter bei Objekten Namensgruppen.
+    /// </summary>
+    public static List<DirEntry> Tree(IEnumerable<DirEntry> leaves, bool items, bool canTellGameItems)
+    {
+        var tree = new List<DirEntry>();
+        foreach (var top in leaves.GroupBy(e => e.Origin, StringComparer.OrdinalIgnoreCase)
+                     .OrderBy(g => OriginOrder(g.Key)).ThenBy(g => g.Key, StringComparer.CurrentCultureIgnoreCase))
+        {
+            var entries = top.ToList();
+            var members = items ? Sorted(entries) : NameGroups(entries);
+            tree.Add(GroupNode($"{OriginLabel(top.Key, canTellGameItems)} ({entries.Count:N0})", members, FontWeights.SemiBold));
+        }
+        return tree;
+    }
+
+    static List<DirEntry> NameGroups(List<DirEntry> entries)
+    {
+        var list = new List<DirEntry>();
+        foreach (var g in entries.GroupBy(e => e.Group, StringComparer.CurrentCultureIgnoreCase))
+        {
+            // Gleichnamige Einträge unterscheiden sich nur durch ID und Besitzer: nach ID ordnen (als Zahl)
+            var members = g.OrderByDescending(e => e.Status).ThenBy(e => e.ObjectId ?? e.ItemId ?? 0).ThenBy(e => e.Text, StringComparer.CurrentCultureIgnoreCase).ToList();
+            list.Add(members.Count == 1 || g.Key.Length == 0 ? members[0] : GroupNode($"{g.Key} ({members.Count:N0})", members, FontWeights.Normal));
+            if (g.Key.Length == 0 && members.Count > 1) list.AddRange(members.Skip(1));
         }
         return Sorted(list);
     }
+
+    static DirEntry GroupNode(string text, List<DirEntry> members, FontWeight weight) =>
+        new(text, members.Select(m => m.Status).DefaultIfEmpty(0).Max(), null, () => members) { Members = members, Weight = weight };
+
+    static int OriginOrder(string key) => key switch { "" => 0, PlayersKey => 2, GoneKey => 3, UnknownKey => 4, _ => 1 };
+
+    static string OriginLabel(string key, bool canTellGameItems) => key switch
+    {
+        "" => L.T("Grundspiel"),
+        PlayersKey => L.T("Spieler"),
+        GoneKey => L.T("Behälter, die es nicht mehr gibt"),
+        UnknownKey => canTellGameItems ? L.T("Herkunft unbekannt (Mod-Datei nicht geladen)") : L.T("Spiel oder Mod ohne geladene Datei (ohne Spieldateien nicht unterscheidbar)"),
+        _ => key,
+    };
 
     IEnumerable<DirEntry> ItemPlaces(List<InventoryItem> places)
     {

@@ -202,7 +202,10 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Füllt die Übersicht. Ordner geladener Mod-Dateien sind vorausgewählt, sonst bleibt die bisherige Auswahl.</summary>
+    /// <summary>
+    /// Füllt die Übersicht. Nichts ist vorab zum Entfernen angehakt: Mod-Dateien dienen zum Erkennen,
+    /// angehakt wird von Hand. Bei erneuter Prüfung desselben Spielstands bleibt die bisherige Auswahl.
+    /// </summary>
     void BuildRows(HashSet<string>? keepSelection)
     {
         _rows.Clear();
@@ -242,7 +245,7 @@ public partial class MainWindow : Window
                 Warnings = d.Warnings,
                 Details = d.Text,
             };
-            row.SetQuietly(mod != null || keepSelection?.Contains(f) == true);
+            row.SetQuietly(keepSelection?.Contains(f) == true);
             row.Changed = OnRowChanged;
             _rows.Add(row);
         }
@@ -253,7 +256,7 @@ public partial class MainWindow : Window
             var d = Describe(m);
             var (items, learned) = Counts(m);
             var row = new FolderRow($"({m.Name})", m) { Items = items, Learned = learned, Warnings = d.Warnings, Details = d.Text };
-            row.SetQuietly(true);
+            row.SetQuietly(keepSelection?.Contains(row.Folder) == true);
             row.Changed = OnRowChanged;
             _rows.Add(row);
         }
@@ -343,7 +346,7 @@ public partial class MainWindow : Window
             if (selected.Count > 0) preview.WriteLine(L.F("Ausgewählt: {0}", string.Join(", ", selected.Select(m => m.Name))));
             if (orphans) preview.WriteLine(L.T("Dazu: Reste ohne Besitzer"));
             preview.WriteLine();
-            _plan = Cleanup.Plan(_save, selected, _game, IncludeContentsBox.IsChecked == true, orphans);
+            _plan = Cleanup.Plan(_save, selected, _game, IncludeContentsBox.IsChecked == true, orphans, _mods);
             _plan.Preview(preview, ItemNames.Build(_game, _mods));
             if (!_plan.IsEmpty)
                 preview.WriteLine(L.T("Hinweis: Das ist nur eine Vorschau. Erst „Jetzt bereinigen …“ ändert den Spielstand."));
@@ -361,6 +364,12 @@ public partial class MainWindow : Window
 
         var summary = new StringBuilder();
         summary.AppendLine(L.F("Aus dem Spielstand\n{0}\nwird Folgendes entfernt:", db));
+        summary.AppendLine();
+        // Welche Mods betroffen sind, mit Namen, damit kein versehentlich angehakter Eintrag durchrutscht
+        var chosen = SelectedMods().Select(m => m.HasFile ? m.Name : m.ModFolders.First()).Order(StringComparer.CurrentCultureIgnoreCase).ToList();
+        summary.AppendLine(L.F("Zum Entfernen angehakt ({0}):", chosen.Count));
+        foreach (var name in chosen.Take(15)) summary.AppendLine("   " + name);
+        if (chosen.Count > 15) summary.AppendLine("   " + L.F("… und {0} weitere", chosen.Count - 15));
         summary.AppendLine();
         if (_plan.Objects.Count > 0) summary.AppendLine("• " + L.F("{0} Objekte samt Inhalt (Mod-Steuerung, Gebäude, Platziertes)", _plan.Objects.Count));
         if (_plan.Items.Count > 0) summary.AppendLine("• " + L.F("{0} Items, Rezepte oder Talente", _plan.Items.Count));
@@ -418,6 +427,7 @@ public partial class MainWindow : Window
                 Pieces = kv.Value,
                 Bounds = new Rect(new Point(kv.Value.Min(p => p.X), kv.Value.Min(p => p.Y)), new Point(kv.Value.Max(p => p.X), kv.Value.Max(p => p.Y))),
                 ModPieces = kv.Value.Count(p => ModPaths.FolderOf(p.Class) != null),
+                Origin = save.Objects.TryGetValue(kv.Key, out var origin) && !(origin.X == 0 && origin.Y == 0) ? new Point(origin.X, origin.Y) : null,
             })
             .ToList();
 
@@ -500,7 +510,17 @@ public partial class MainWindow : Window
                 status == 2 ? MapView.SelectedModBrush : MapView.ModBrush, status));
         }
         FindingsList.ItemsSource = list.OrderByDescending(f => f.Status).ThenBy(f => f.Text, StringComparer.CurrentCultureIgnoreCase).ToList();
-        FindingsHint.Text = list.Count == 0 ? L.T("Keine Mod-Inhalte auf der Karte.") : L.F("{0} Fundstellen. Klick springt zur Stelle.", list.Count);
+
+        // Was die Liste umfasst und was nicht: Mod-Items in Behältern und Inventaren des Spiels stehen nicht darin
+        var hint = new StringBuilder(list.Count == 0 ? L.T("Keine Gebäude oder Objekte aus Mods auf der Karte.")
+            : L.F("{0} Fundstellen: Gebäude mit Mod-Teilen und Objekte aus Mods. Klick springt hin.", list.Count));
+        var modIds = new HashSet<long>(_mods.SelectMany(m => m.NewIds));
+        var modObjects = new HashSet<long>(_mapObjects.Where(o => o.ModFolder != null).Select(o => o.Object.Id));
+        var elsewhere = _save.Items.Where(i => modIds.Contains(i.TemplateId) && !modObjects.Contains(i.OwnerId)).ToList();
+        if (elsewhere.Count > 0)
+            hint.Append(' ').Append(L.F("Nicht hier: {0:N0} Mod-Items, -Rezepte u. Ä. bei Spielern, Figuren und Behältern des Spiels (siehe „Besitz“, „Verzeichnis“).",
+                elsewhere.Count));
+        FindingsHint.Text = hint.ToString();
     }
 
     void Findings_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -563,6 +583,7 @@ public partial class MainWindow : Window
         Map.ShowFigures = ShowFiguresBox.IsChecked == true;
         Map.ShowPlayers = ShowPlayersBox.IsChecked == true;
         Map.OnlyMods = OnlyModsBox.IsChecked == true;
+        Map.ResolveProbe();
         Map.InvalidateVisual();
         RefreshSection();
     }
@@ -595,6 +616,9 @@ public partial class MainWindow : Window
             if (Map.RiskCount(b) is > 0 and var risk)
                 text.AppendLine(L.F("{0:N0} Teile stehen nur auf Teilen der angehakten Mods und könnten einstürzen (Näherung).", risk));
             if (save.Objects.TryGetValue(b.Id, out var o)) text.AppendLine(SaveGame.Coords(o));
+            // Manche Gebäude haben ihren gespeicherten Bezugspunkt weit neben den Bauteilen
+            if (MapView.OriginOffset(b) is > FarOrigin and var off)
+                text.AppendLine(L.F("Diese Koordinaten sind der gespeicherte Bezugspunkt des Gebäudes; er liegt {0:N0} Einheiten neben den Bauteilen.", off));
             if (Map.SelectedPiece is { } piece)
             {
                 // Das angeklickte Bauteil
@@ -650,8 +674,43 @@ public partial class MainWindow : Window
             MapInfoText.Text = text.ToString();
             MapTeleportButton.Visibility = Visibility.Visible;
         }
+        else if (Map.ProbeSelected && Map.Probe is { } probe) MapInfoText.Text = ProbeText(save, probe);
         else MapInfoText.Text = L.T("Nichts ausgewählt. Auf ein Gebäude oder Objekt klicken.");
     }
+
+    /// <summary>Erklärung zum „?“: was an der Stelle steht und warum die Karte dort nichts zeichnet.</summary>
+    string ProbeText(SaveGame save, MapProbe probe)
+    {
+        var text = new StringBuilder();
+        text.AppendLine(L.T("Warum ist hier nichts zu sehen?"));
+        text.AppendLine();
+        if (probe.Id is { } id)
+        {
+            var what = _mapBuildings.Any(b => b.Id == id) ? L.F("Gebäude {0}", id)
+                : save.Objects.TryGetValue(id, out var o) ? $"{ObjectName(save, o)} (ID {id})" : $"ID {id}";
+            text.AppendLine(L.F("Hier steht: {0}", what));
+            text.AppendLine(L.T("Es ist unter „Anzeigen“ ausgeblendet:"));
+            foreach (var r in Map.HiddenBecause(id)) text.AppendLine("• " + r);
+        }
+        else
+        {
+            // Was laut Spielstand an dieser Stelle liegt, die Karte aber nicht zeichnet
+            var there = save.Objects.Values.Where(o => Math.Abs(o.X - probe.At.X) < 1 && Math.Abs(o.Y - probe.At.Y) < 1).ToList();
+            if (there.Count == 0) text.AppendLine(L.T("Laut Spielstand steht an dieser Stelle nichts, was die Karte zeichnen kann."));
+            else
+            {
+                text.AppendLine(L.T("Laut Spielstand liegt hier, wird auf der Karte aber nicht gezeichnet:"));
+                foreach (var o in there.Take(5)) text.AppendLine($"• {ObjectName(save, o)} (ID {o.Id})");
+            }
+        }
+        text.AppendLine();
+        text.Append($"X {probe.At.X:0} / Y {probe.At.Y:0}");
+        return text.ToString();
+    }
+
+    static string ObjectName(SaveGame save, WorldObject o) =>
+        save.Characters.TryGetValue(o.Id, out var player) ? L.F("Spieler „{0}“", player)
+        : save.FigureNames.TryGetValue(o.Id, out var n) ? n : Ownership.PrettyClass(o.Class);
 
     void LevelBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
@@ -659,11 +718,22 @@ public partial class MainWindow : Window
         Map.Level = (LevelBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as int?;
     }
 
+    /// <summary>Ab diesem Abstand gilt der Bezugspunkt eines Gebäudes als „neben den Bauteilen“.</summary>
+    const double FarOrigin = 300;
+
     void MapTeleport_Click(object sender, RoutedEventArgs e)
     {
         WorldObject? o = Map.SelectedObject?.Object ?? (Map.SelectedBuilding is { } b ? _save?.Objects.GetValueOrDefault(b.Id) : null);
         if (o == null) return;
-        var cmd = $"TeleportPlayer {o.X:0} {o.Y:0} {o.Z:0}";
+        var (x, y, z) = (o.X, o.Y, o.Z);
+        // Liegt der Bezugspunkt neben dem Gebäude, lieber zum Bauteil nahe der Mitte (etwas darüber)
+        if (Map.SelectedObject == null && Map.SelectedBuilding is { } sb && MapView.OriginOffset(sb) > FarOrigin)
+        {
+            var c = sb.Center;
+            var p = sb.Pieces.MinBy(p => (p.X - c.X) * (p.X - c.X) + (p.Y - c.Y) * (p.Y - c.Y))!;
+            (x, y, z) = (p.X, p.Y, p.Z + 100);
+        }
+        var cmd = $"TeleportPlayer {x:0} {y:0} {z:0}";
         Clipboard.SetText(cmd);
         StatusText.Text = L.F("Kopiert: {0}", cmd);
     }

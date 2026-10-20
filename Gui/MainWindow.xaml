@@ -19,16 +19,26 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Linke Spalte: Auswahl -->
-        <DockPanel Grid.Column="0">
-            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
+        <!-- Linke Spalte: Auswahl. Füllt die Höhe; wird es zu eng (lange Mod-Liste, kleines Fenster),
+             rollt die ganze Spalte, statt etwas abzuschneiden -->
+        <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+        <local:FitGrid>
+            <local:FitGrid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="3*" MinHeight="210" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="2*" MinHeight="100" />
+            </local:FitGrid.RowDefinitions>
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
                 <Image Source="{StaticResource Logo}" Width="40" Height="40" />
                 <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
                     <TextBlock Text="ConanModCheck" FontSize="17" FontWeight="SemiBold" />
                     <TextBlock Text="Mod-Reste im Spielstand finden und entfernen" Foreground="#666" />
                 </StackPanel>
             </StackPanel>
-            <GroupBox Header="1. Spielstand (game.db)" DockPanel.Dock="Top">
+            <GroupBox Grid.Row="1" Header="1. Spielstand (game.db)">
                 <StackPanel>
                     <TextBlock x:Name="DbPathText" Text="Noch keiner ausgewählt" TextWrapping="Wrap" />
                     <Button Content="Spielstand auswählen …" HorizontalAlignment="Left" Margin="0,8,0,0" Click="ChooseDb_Click" />
@@ -37,24 +47,24 @@
                 </StackPanel>
             </GroupBox>
 
-            <GroupBox Header="2. Mod-Dateien (optional)" DockPanel.Dock="Top">
+            <GroupBox Grid.Row="2" Header="2. Mod-Dateien (optional)">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource Hint}"
-                               Text="Zip, .pak oder .utoc der Mods, die entfernt werden sollen. Nur mit der Mod-Datei lassen sich auch ihre Items finden. Dateien lassen sich hierher ziehen." />
+                               Text="Zip, .pak oder .utoc von Mods. Nur mit der Mod-Datei lassen sich auch ihre Items erkennen; was entfernt werden soll, wird danach in der Übersicht angehakt. Dateien lassen sich hierher ziehen." />
                     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
                         <Button Content="Hinzufügen …" Click="AddMods_Click" />
                         <Button Content="Ordner …" Margin="6,0,0,0" Click="AddModFolder_Click"
                                 ToolTip="Einen ganzen Ordner mit Mods, z. B. ConanSandbox\Saved\ExtractedMods" />
                         <Button Content="Entfernen" Margin="6,0,0,0" Click="RemoveMod_Click" />
                     </StackPanel>
-                    <ListBox x:Name="ModList" MinHeight="90" SelectionMode="Extended" />
+                    <ListBox x:Name="ModList" MinHeight="60" SelectionMode="Extended" />
                 </DockPanel>
             </GroupBox>
 
-            <Button x:Name="AnalyzeButton" DockPanel.Dock="Top" Content="Prüfen" FontWeight="SemiBold"
+            <Button x:Name="AnalyzeButton" Grid.Row="3" Content="Prüfen" FontWeight="SemiBold"
                     MinHeight="36" IsDefault="True" Click="Analyze_Click" />
 
-            <Expander Header="Einstellungen" DockPanel.Dock="Top" Margin="0,12,0,0">
+            <Expander Grid.Row="4" Header="Einstellungen" Margin="0,12,0,0">
                 <Border Margin="0,6,0,0" Padding="10" Background="#F5F5F3" BorderBrush="#DDDAD2" BorderThickness="1" CornerRadius="4">
                 <StackPanel>
                     <TextBlock Text="Sprache / Language" />
@@ -81,10 +91,11 @@
                 </Border>
             </Expander>
 
-            <GroupBox Header="Verlauf" Margin="0,12,0,0">
+            <GroupBox Grid.Row="5" Header="Verlauf" Margin="0,12,0,0">
                 <TextBox x:Name="LogBox" Style="{StaticResource ReportBox}" FontSize="11.5" BorderThickness="0" TextWrapping="Wrap" />
             </GroupBox>
-        </DockPanel>
+        </local:FitGrid>
+        </ScrollViewer>
 
         <!-- Rechte Spalte: Ergebnisse -->
         <TabControl x:Name="Tabs" Grid.Column="2">
@@ -102,16 +113,16 @@
                               HeadersVisibility="Column" GridLinesVisibility="Horizontal" SelectionMode="Single"
                               HorizontalGridLinesBrush="#DDD" RowHeight="24" SelectionChanged="FolderGrid_SelectionChanged">
                         <DataGrid.Columns>
-                            <DataGridTemplateColumn Header="Entfernen" Width="70">
+                            <DataGridTemplateColumn Header="Entfernen" Width="70" MinWidth="70">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <CheckBox IsChecked="{Binding Remove, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTextColumn Header="Mod-Ordner" Binding="{Binding Folder}" Width="2*" IsReadOnly="True" />
-                            <DataGridTextColumn Header="Mod-Datei" Binding="{Binding ModName}" Width="*" IsReadOnly="True" />
-                            <DataGridTextColumn Header="Mod-Controller" Binding="{Binding ControllerMark}" Width="95" IsReadOnly="True">
+                            <DataGridTextColumn Header="Mod-Ordner" Binding="{Binding Folder}" Width="2*" MinWidth="140" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Mod-Datei" Binding="{Binding ModName}" Width="*" MinWidth="100" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Mod-Controller" Binding="{Binding ControllerMark}" Width="95" MinWidth="95" IsReadOnly="True">
                                 <DataGridTextColumn.ElementStyle>
                                     <!-- Rechtsbündig, damit die Häkchen auch bei "2 ✓" untereinander stehen -->
                                     <Style TargetType="TextBlock">
@@ -120,11 +131,11 @@
                                     </Style>
                                 </DataGridTextColumn.ElementStyle>
                             </DataGridTextColumn>
-                            <DataGridTextColumn Header="Objekte" Binding="{Binding Objects}" Width="70" IsReadOnly="True" />
-                            <DataGridTextColumn Header="Bauteile" Binding="{Binding Pieces}" Width="70" IsReadOnly="True" />
-                            <DataGridTextColumn Header="Items" Binding="{Binding Items}" Width="70" IsReadOnly="True" />
-                            <DataGridTextColumn Header="Erlernt" Binding="{Binding Learned}" Width="70" IsReadOnly="True" />
-                            <DataGridTemplateColumn Header="Warnungen" Width="85">
+                            <DataGridTextColumn Header="Objekte" Binding="{Binding Objects}" Width="70" MinWidth="70" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Bauteile" Binding="{Binding Pieces}" Width="70" MinWidth="70" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Items" Binding="{Binding Items}" Width="70" MinWidth="70" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Erlernt" Binding="{Binding Learned}" Width="70" MinWidth="70" IsReadOnly="True" />
+                            <DataGridTemplateColumn Header="Warnungen" Width="85" MinWidth="85">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <TextBlock Text="{Binding WarningMark}" ToolTip="{Binding WarningTip}" Foreground="#9B1C1C" FontWeight="SemiBold"
@@ -149,23 +160,24 @@
 
             <TabItem Header="Besitz">
                 <DockPanel Margin="8">
-                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-                        <Button DockPanel.Dock="Right" Content="Als Text speichern …" Margin="6,0,0,0" Click="SaveOwnership_Click" />
-                        <Button DockPanel.Dock="Right" Content="Alles zuklappen" Margin="6,0,0,0" Click="CollapseAll_Click" />
-                        <Button DockPanel.Dock="Right" Content="Mod-Inhalte aufklappen" Margin="6,0,0,0" Click="ExpandMarked_Click"
-                                ToolTip="Klappt alle Zweige mit Mod-Inhalten auf und alle anderen zu." />
-                        <ComboBox x:Name="ItemFilterBox" DockPanel.Dock="Right" Margin="12,0,0,0" Width="190" VerticalContentAlignment="Center"
+                    <!-- Bricht bei schmalem Fenster in eine zweite Zeile um, statt Suchfeld oder Knöpfe zu verdrängen -->
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,2">
+                        <TextBlock Text="Item suchen:" VerticalAlignment="Center" Margin="0,0,6,6" />
+                        <TextBox x:Name="OwnershipSearchBox" Width="200" Margin="0,0,0,6" VerticalContentAlignment="Center" KeyDown="OwnershipSearch_KeyDown"
+                                 ToolTip="Teil eines Item- oder Mod-Namens, z. B. „Sternenmetall“. Leer lassen für alles." />
+                        <Button Content="Suchen" Margin="6,0,0,6" Click="SearchOwnership_Click" />
+                        <ComboBox x:Name="ItemFilterBox" Margin="12,0,0,6" Width="190" VerticalContentAlignment="Center"
                                   SelectedIndex="0" SelectionChanged="ItemFilter_Changed">
                             <ComboBoxItem Content="Alle Items" />
                             <ComboBoxItem Content="Items aus allen Mods" />
                             <ComboBoxItem Content="Items aus geladenen Mods" />
                             <ComboBoxItem Content="Items aus angehakten Mods" />
                         </ComboBox>
-                        <Button DockPanel.Dock="Right" Content="Suchen" Margin="6,0,0,0" Click="SearchOwnership_Click" />
-                        <TextBlock DockPanel.Dock="Left" Text="Item suchen:" VerticalAlignment="Center" Margin="0,0,6,0" />
-                        <TextBox x:Name="OwnershipSearchBox" VerticalContentAlignment="Center" KeyDown="OwnershipSearch_KeyDown"
-                                 ToolTip="Teil eines Item- oder Mod-Namens, z. B. „Sternenmetall“. Leer lassen für alles." />
-                    </DockPanel>
+                        <Button Content="Mod-Inhalte aufklappen" Margin="6,0,0,6" Click="ExpandMarked_Click"
+                                ToolTip="Klappt alle Zweige mit Mod-Inhalten auf und alle anderen zu." />
+                        <Button Content="Alles zuklappen" Margin="6,0,0,6" Click="CollapseAll_Click" />
+                        <Button Content="Als Text speichern …" Margin="6,0,0,6" Click="SaveOwnership_Click" />
+                    </WrapPanel>
                     <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource Hint}"
                                Text="Gelb: Inhalte aus Mods, rot: aus Mods, die in der Übersicht zum Entfernen angehakt sind – übergeordnete Zeilen tragen die Farbe ihrer Inhalte. Zahlen in eckigen Klammern sind Stückzahlen, Namen in eckigen Klammern die Mod. Rechtsklick auf ein Objekt kopiert den Teleport-Befehl." />
                     <TreeView x:Name="OwnershipTree" VirtualizingStackPanel.IsVirtualizing="True" PreviewMouseRightButtonDown="OwnershipTree_PreviewMouseRightButtonDown"
@@ -201,27 +213,27 @@
 
             <TabItem x:Name="DirectoryTabItem" Header="Verzeichnis">
                 <DockPanel Margin="8">
-                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-                        <Button x:Name="DirBackButton" DockPanel.Dock="Right" Content="← Zurück" Margin="6,0,0,0" IsEnabled="False" Click="Back_Click"
-                                ToolTip="Zurück dorthin, von wo aus hierher gesprungen wurde." />
-                        <ComboBox x:Name="DirFilterBox" DockPanel.Dock="Right" Margin="12,0,0,0" Width="170" VerticalContentAlignment="Center"
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,2">
+                        <TextBlock Text="Suchen:" VerticalAlignment="Center" Margin="0,0,6,6" />
+                        <TextBox x:Name="DirSearchBox" Width="220" Margin="0,0,0,6" VerticalContentAlignment="Center" KeyDown="DirSearch_KeyDown"
+                                 ToolTip="Teil eines Namens, einer Klasse, eines Besitzers oder eine ID. Leer lassen für alles." />
+                        <Button Content="Suchen" Margin="6,0,0,6" Click="DirSearch_Click" />
+                        <ComboBox x:Name="DirModeBox" Margin="12,0,0,6" Width="110" VerticalContentAlignment="Center"
+                                  SelectedIndex="0" SelectionChanged="DirFilter_Changed">
+                            <ComboBoxItem Content="Objekte" />
+                            <ComboBoxItem Content="Items" />
+                        </ComboBox>
+                        <ComboBox x:Name="DirFilterBox" Margin="12,0,0,6" Width="170" VerticalContentAlignment="Center"
                                   SelectedIndex="0" SelectionChanged="DirFilter_Changed">
                             <ComboBoxItem Content="Alles" />
                             <ComboBoxItem Content="Nur Mod-Inhalte" />
                             <ComboBoxItem Content="Nur angehakte Mods" />
                         </ComboBox>
-                        <ComboBox x:Name="DirModeBox" DockPanel.Dock="Right" Margin="12,0,0,0" Width="110" VerticalContentAlignment="Center"
-                                  SelectedIndex="0" SelectionChanged="DirFilter_Changed">
-                            <ComboBoxItem Content="Objekte" />
-                            <ComboBoxItem Content="Items" />
-                        </ComboBox>
-                        <Button DockPanel.Dock="Right" Content="Suchen" Margin="6,0,0,0" Click="DirSearch_Click" />
-                        <TextBlock DockPanel.Dock="Left" Text="Suchen:" VerticalAlignment="Center" Margin="0,0,6,0" />
-                        <TextBox x:Name="DirSearchBox" VerticalContentAlignment="Center" KeyDown="DirSearch_KeyDown"
-                                 ToolTip="Teil eines Namens, einer Klasse, eines Besitzers oder eine ID. Leer lassen für alles." />
-                    </DockPanel>
+                        <Button x:Name="DirBackButton" Content="← Zurück" Margin="6,0,0,6" IsEnabled="False" Click="Back_Click"
+                                ToolTip="Zurück dorthin, von wo aus hierher gesprungen wurde." />
+                    </WrapPanel>
                     <TextBlock x:Name="DirHint" DockPanel.Dock="Bottom" Style="{StaticResource Hint}" TextWrapping="Wrap"
-                               Text="Was ist wo: alle Objekte und Item-Arten des Spielstands. Aufklappen zeigt Fundstellen, Besitzer und Inhalt; Koordinaten führen zur Karte, Doppelklick auf eine Fundstelle oder ein Item springt zu dessen Eintrag. Gelb: aus Mods, rot: aus angehakten Mods." />
+                               Text="Was ist wo: alle Objekte und Item-Arten des Spielstands, geordnet nach Herkunft (Grundspiel, Mods) und Namen. Aufklappen zeigt Fundstellen, Besitzer und Inhalt; Koordinaten führen zur Karte, Doppelklick auf eine Fundstelle oder ein Item springt zu dessen Eintrag. Gelb: aus Mods, rot: aus angehakten Mods." />
                     <TreeView x:Name="DirTree" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling"
                               VirtualizingPanel.ScrollUnit="Pixel"
                               MouseDoubleClick="DirTree_MouseDoubleClick">
@@ -268,10 +280,10 @@
                         <!-- Höhenschnitt: erscheint, sobald auf der Karte eine Schnittlinie gezogen ist -->
                         <Border x:Name="SectionPanel" Grid.Row="1" BorderBrush="#CCC" BorderThickness="1" Margin="0,6,0,0" Height="240" Visibility="Collapsed">
                             <DockPanel>
-                                <DockPanel DockPanel.Dock="Top" Margin="6,4,6,2">
-                                    <Button DockPanel.Dock="Right" Content="Schnitt schließen" Click="CloseSection_Click" />
+                                <WrapPanel DockPanel.Dock="Top" Margin="6,4,6,2">
+                                    <TextBlock x:Name="SectionTitle" VerticalAlignment="Center" FontWeight="SemiBold" Text="Höhenschnitt" Margin="0,0,16,2" />
                                     <!-- Tiefe des Streifens vor und hinter der Schnittlinie -->
-                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,12,0">
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,12,2">
                                         <TextBlock Text="Vorne:" VerticalAlignment="Center" Margin="0,0,4,0"
                                                    ToolTip="Wie weit vor der Linie (zum Betrachter hin) Teile mitgezeigt werden. Der Pfeil auf der Karte zeigt die Blickrichtung." />
                                         <Slider x:Name="SectionFrontSlider" Width="150" Minimum="0" Maximum="4096" Value="256" TickFrequency="64"
@@ -283,14 +295,21 @@
                                                 IsSnapToTickEnabled="True" VerticalAlignment="Center" ValueChanged="SectionDepth_Changed" />
                                         <TextBlock x:Name="SectionBackText" Width="44" VerticalAlignment="Center" Margin="4,0,0,0" Text="256" />
                                     </StackPanel>
-                                    <TextBlock x:Name="SectionTitle" VerticalAlignment="Center" FontWeight="SemiBold" Text="Höhenschnitt" TextTrimming="CharacterEllipsis" />
-                                </DockPanel>
+                                    <Button Content="Schnitt schließen" Margin="0,0,0,2" Click="CloseSection_Click" />
+                                </WrapPanel>
                                 <local:SectionView x:Name="Section" />
                             </DockPanel>
                         </Border>
                     </Grid>
-                    <DockPanel Grid.Column="1" Margin="10,0,0,0">
-                        <StackPanel DockPanel.Dock="Top">
+                    <!-- Seitenleiste: füllt die Höhe; bei langer Auswahl, offener Legende oder kleinem Fenster rollt sie -->
+                    <ScrollViewer Grid.Column="1" Margin="10,0,0,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+                    <local:FitGrid>
+                        <local:FitGrid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" MinHeight="150" />
+                            <RowDefinition Height="Auto" />
+                        </local:FitGrid.RowDefinitions>
+                        <StackPanel Grid.Row="0">
                             <WrapPanel>
                                 <Button Content="Ganze Karte" Margin="0,0,6,6" Click="MapFit_Click" />
                                 <Button Content="Verbannte Lande" Margin="0,0,6,6" Tag="exiled" Click="MapIsland_Click" />
@@ -300,7 +319,7 @@
                                         ToolTip="Zurück dorthin, von wo aus hierher gesprungen wurde." />
                             </WrapPanel>
                             <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,0"
-                                       Text="Mausrad: zoomen · Ziehen: verschieben · Rechte Maustaste ziehen: Ausschnitt vergrößern · Strg + Ziehen: drehen · Umschalt + Ziehen: Höhenschnitt · Klick auf Gruppe oder Randpfeil: hinspringen" />
+                                       Text="Mausrad: zoomen · Ziehen: verschieben · Rechte Maustaste ziehen: Ausschnitt vergrößern · Strg + Ziehen: drehen · Umschalt + Ziehen: Höhenschnitt, danach A und B mit der Maus verschieben · Klick auf Gruppe oder Randpfeil: hinspringen" />
 
                             <GroupBox Header="Auswahl" Margin="0,10,0,0">
                                 <StackPanel>
@@ -326,11 +345,11 @@
                             </GroupBox>
                         </StackPanel>
 
-                        <Expander DockPanel.Dock="Bottom" Header="Legende" Margin="0,6,0,0">
+                        <Expander Grid.Row="2" Header="Legende" Margin="0,6,0,0">
                             <StackPanel x:Name="LegendPanel" Margin="0,4,0,0" />
                         </Expander>
 
-                        <GroupBox Header="Fundstellen von Mod-Inhalten">
+                        <GroupBox Grid.Row="1" Header="Fundstellen von Mod-Inhalten">
                             <DockPanel>
                                 <TextBlock x:Name="FindingsHint" DockPanel.Dock="Top" Style="{StaticResource Hint}" Margin="0,0,0,4"
                                            Text="Klick springt zur Stelle." />
@@ -347,7 +366,8 @@
                                 </ListBox>
                             </DockPanel>
                         </GroupBox>
-                    </DockPanel>
+                    </local:FitGrid>
+                    </ScrollViewer>
                 </Grid>
             </TabItem>
 
@@ -365,11 +385,12 @@
             <TabItem x:Name="CleanupTab" Header="Bereinigung">
                 <DockPanel Margin="8">
                     <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
-                        <CheckBox x:Name="IncludeContentsBox" Content="Mod-Behälter auch dann entfernen, wenn noch andere Items darin liegen"
-                                  Checked="IncludeContents_Changed" Unchecked="IncludeContents_Changed" />
-                        <CheckBox x:Name="IncludeOrphansBox" Margin="0,6,0,0"
-                                  Content="Reste ohne Besitzer mit entfernen (Items in Behältern, die es nicht mehr gibt; siehe Bericht)"
-                                  Checked="IncludeContents_Changed" Unchecked="IncludeContents_Changed" />
+                        <CheckBox x:Name="IncludeContentsBox" Checked="IncludeContents_Changed" Unchecked="IncludeContents_Changed">
+                            <TextBlock TextWrapping="Wrap" Text="Mod-Behälter auch dann entfernen, wenn noch andere Items darin liegen" />
+                        </CheckBox>
+                        <CheckBox x:Name="IncludeOrphansBox" Margin="0,6,0,0" Checked="IncludeContents_Changed" Unchecked="IncludeContents_Changed">
+                            <TextBlock TextWrapping="Wrap" Text="Reste ohne Besitzer mit entfernen (Items in Behältern, die es nicht mehr gibt; siehe Bericht)" />
+                        </CheckBox>
                         <DockPanel Margin="0,8,0,0">
                             <Button x:Name="ApplyButton" DockPanel.Dock="Left" Content="Jetzt bereinigen …" FontWeight="SemiBold"
                                     IsEnabled="False" Click="Apply_Click" />

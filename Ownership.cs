@@ -203,8 +203,8 @@ sealed class Ownership
         if (!_save.ItemsByOwner.TryGetValue(ownerId, out var items)) yield break;
         foreach (var byType in items.GroupBy(i => i.InvType).OrderBy(g => g.Key))
         {
-            // Erlernte Rezepte, Gesten u. ä. sind keine Gegenstände
-            if (isCharacter && byType.Key is 3 or 6 or 7) continue;
+            // Erlernte Rezepte, Lore, Zauber und unbekannte Sonderinventare sind keine Gegenstände
+            if (isCharacter && !InventoryKinds.IsItems(byType.Key)) continue;
             var section = new OwnNode(OwnKind.Section, SectionName(byType.Key, isCharacter, clanStore));
             foreach (var g in byType.Where(i => i.TemplateId > 0).GroupBy(i => i.TemplateId)
                          .Select(g => (Id: g.Key, Qty: g.Sum(i => (long)i.Quantity)))

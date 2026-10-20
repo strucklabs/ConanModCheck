@@ -30,8 +30,16 @@ sealed class MapBuilding
     public required List<BuildingPiece> Pieces { get; init; }
     public Rect Bounds { get; init; }
     public int ModPieces { get; init; }
+    /// <summary>Gespeicherter Bezugspunkt des Gebäudes (actor_position); liegt nicht immer bei den Bauteilen.</summary>
+    public Point? Origin { get; init; }
     public Point Center => new(Bounds.X + Bounds.Width / 2, Bounds.Y + Bounds.Height / 2);
 }
+
+/// <summary>
+/// Sprungziel, an dem die Karte nichts Sichtbares zeichnet: Dort steht ein „?“, dessen Klick erklärt, warum.
+/// </summary>
+/// <param name="Id">Gebäude oder Objekt, das hier steht, aber ausgeblendet ist; null = laut Kartendaten steht hier nichts.</param>
+sealed record MapProbe(Point At, long? Id);
 
 enum MapObjectKind { Placeable, Figure, Player }
 
@@ -65,8 +73,10 @@ sealed class MapView : FrameworkElement
     bool _hasView;
 
     // Maus
-    enum Drag { None, Pan, Rotate, Zoom, Section }
+    enum Drag { None, Pan, Rotate, Zoom, Section, MoveA, MoveB }
     Drag _drag;
+    Vector _handleGrip; // Abstand Mauszeiger → Mitte von A bzw. B beim Anfassen, damit der Punkt nicht springt
+    const double HandleRadius = 8;
     Point _dragStart, _dragNow;
     Point _dragCenter;
     double _dragAngle;
@@ -245,6 +255,22 @@ sealed class MapView : FrameworkElement
 
     // ---------- Ansicht ----------
 
+    /// <summary>
+    /// Ändert sich die Höhe der Karte (z. B. wenn der Höhenschnitt darunter auf- oder zugeht), bleibt der
+    /// obere Rand stehen statt der Mitte. So springt eine gerade gezogene Schnittlinie nicht weg und
+    /// A und B bleiben dort, wo die Maus sie losgelassen hat.
+    /// </summary>
+    protected override void OnRenderSizeChanged(SizeChangedInfo info)
+    {
+        base.OnRenderSizeChanged(info);
+        if (!_hasView || !info.HeightChanged || info.PreviousSize.Height <= 0) return;
+        double dy = (info.NewSize.Height - info.PreviousSize.Height) / 2 / _scale;
+        // Bildschirm-Senkrechte in Weltrichtung (Drehung beachten)
+        double a = _angle * Math.PI / 180;
+        _center += new Vector(Math.Sin(a) * dy, Math.Cos(a) * dy);
+        InvalidateVisual();
+    }
+
     Matrix ViewMatrix()
     {
         var m = Matrix.Identity;
@@ -306,24 +332,97 @@ sealed class MapView : FrameworkElement
         else if (SelectedObject != null) FitRect(new Rect(SelectedObject.Object.X - 2000, SelectedObject.Object.Y - 2000, 4000, 4000));
     }
 
-    /// <summary>Zoomt auf Weltkoordinaten; liegt dort ein Objekt, wird es ausgewählt.</summary>
+    /// <summary>
+    /// Zoomt auf Weltkoordinaten. Liegt dort ein Objekt oder der Bezugspunkt eines Gebäudes, wird es
+    /// ausgewählt (Gebäude samt ihren Bauteilen, auch wenn der Bezugspunkt daneben liegt). Zeichnet die
+    /// Karte dort nichts, markiert ein „?“ die Stelle.
+    /// </summary>
     public void ShowAt(double x, double y)
     {
-        var here = _objects.FirstOrDefault(o => Math.Abs(o.Object.X - x) < 1 && Math.Abs(o.Object.Y - y) < 1);
+        static bool At(Point p, double x, double y) => Math.Abs(p.X - x) < 1 && Math.Abs(p.Y - y) < 1;
+        var building = _buildings.FirstOrDefault(b => b.Origin is { } o && At(o, x, y));
+        if (building != null) { SelectAndZoom(building.Id); return; }
+        var here = _objects.FirstOrDefault(o => At(new Point(o.Object.X, o.Object.Y), x, y));
         if (here != null) { SelectAndZoom(here.Object.Id); return; }
+
+        ClearSelection();
+        Probe = new MapProbe(new Point(x, y), null);
         FitRect(new Rect(x - 2000, y - 2000, 4000, 4000));
+        SelectionChanged?.Invoke();
     }
 
-    /// <summary>Wählt ein Gebäude oder Objekt aus (z. B. aus der Fundstellen-Liste) und zoomt darauf.</summary>
+    /// <summary>
+    /// Wählt ein Gebäude oder Objekt aus (z. B. aus der Fundstellen-Liste) und zoomt darauf. Ist es
+    /// durch die Anzeige-Filter ausgeblendet, markiert stattdessen ein „?“ die Stelle.
+    /// </summary>
     public void SelectAndZoom(long id)
     {
-        SelectedBuilding = _buildings.FirstOrDefault(b => b.Id == id);
-        SelectedObject = SelectedBuilding == null ? _objects.FirstOrDefault(o => o.Object.Id == id) : null;
-        SelectedPiece = null;
-        _level = null;
+        ClearSelection();
+        var building = _buildings.FirstOrDefault(b => b.Id == id);
+        var obj = building == null ? _objects.FirstOrDefault(o => o.Object.Id == id) : null;
+        if (building != null && IsShown(building)) SelectedBuilding = building;
+        else if (obj != null && IsShown(obj)) SelectedObject = obj;
+        else if (building != null) { Probe = new MapProbe(building.Center, id); FitRect(building.Bounds); }
+        else if (obj != null) Probe = new MapProbe(new Point(obj.Object.X, obj.Object.Y), id);
+        if (Probe is { } p && building == null) FitRect(new Rect(p.At.X - 2000, p.At.Y - 2000, 4000, 4000));
         ZoomToSelection();
         SelectionChanged?.Invoke();
     }
+
+    void ClearSelection()
+    {
+        SelectedBuilding = null;
+        SelectedObject = null;
+        SelectedPiece = null;
+        _level = null;
+        Probe = null;
+        ProbeSelected = false;
+    }
+
+    /// <summary>„?“ nach einem Sprung, an dessen Ziel die Karte nichts zeichnet (oder null).</summary>
+    public MapProbe? Probe { get; private set; }
+
+    /// <summary>Das „?“ wurde angeklickt: Die Auswahl-Anzeige erklärt, warum dort nichts zu sehen ist.</summary>
+    public bool ProbeSelected { get; private set; }
+
+    /// <summary>Warum das Gebäude oder Objekt mit dieser ID gerade nicht gezeichnet wird; leer = es ist sichtbar.</summary>
+    public List<string> HiddenBecause(long id)
+    {
+        var reasons = new List<string>();
+        var building = _buildings.FirstOrDefault(b => b.Id == id);
+        var obj = building == null ? _objects.FirstOrDefault(o => o.Object.Id == id) : null;
+        if (OnlyMods && ((building != null && building.ModPieces == 0) || (obj != null && obj.ModFolder == null)))
+            reasons.Add(L.F("„{0}“ ist angehakt, und es stammt nicht aus einer Mod.", L.T("Nur Mod-Inhalte")));
+        if (obj != null)
+        {
+            var (shown, label) = obj.Kind switch
+            {
+                MapObjectKind.Placeable => (ShowPlaceables, "Platzierte Objekte"),
+                MapObjectKind.Figure => (ShowFigures, "Thralls und Tiere"),
+                _ => (ShowPlayers, "Spieler"),
+            };
+            if (!shown) reasons.Add(L.F("„{0}“ ist nicht angehakt.", L.T(label)));
+        }
+        return reasons;
+    }
+
+    /// <summary>Nach geänderten Filtern: Ist das Ziel des „?“ jetzt sichtbar, wird es stattdessen ausgewählt.</summary>
+    public void ResolveProbe()
+    {
+        if (Probe is not { Id: { } id } || HiddenBecause(id).Count > 0) return;
+        Probe = null;
+        ProbeSelected = false;
+        SelectedBuilding = _buildings.FirstOrDefault(b => b.Id == id);
+        SelectedObject = SelectedBuilding == null ? _objects.FirstOrDefault(o => o.Object.Id == id) : null;
+        SelectionChanged?.Invoke();
+    }
+
+    /// <summary>Abstand des gespeicherten Bezugspunkts zum nächsten Bauteil (0 ohne Bezugspunkt).</summary>
+    public static double OriginOffset(MapBuilding b) =>
+        b.Origin is { } o ? b.Pieces.Min(p => Math.Sqrt((p.X - o.X) * (p.X - o.X) + (p.Y - o.Y) * (p.Y - o.Y))) : 0;
+
+    /// <summary>Wird das „?“ gerade gezeichnet? Nicht mehr, sobald das Ziel durch geänderte Filter sichtbar ist.</summary>
+    bool ProbeShown => Probe is { } p && (p.Id is not { } id || HiddenBecause(id).Count > 0);
 
     // ---------- Maus ----------
 
@@ -339,8 +438,27 @@ sealed class MapView : FrameworkElement
         e.Handled = true;
     }
 
-    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e) => BeginDrag(e,
-        Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ? Drag.Rotate : Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? Drag.Section : Drag.Pan);
+    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+    {
+        // Endpunkte A und B des Höhenschnitts lassen sich greifen und verschieben
+        if (HandleAt(e.GetPosition(this)) is { } handle)
+        {
+            var (a, b) = _section!.Value;
+            _handleGrip = ToScreen(handle == Drag.MoveA ? a : b) - e.GetPosition(this);
+            BeginDrag(e, handle);
+            return;
+        }
+        BeginDrag(e, Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ? Drag.Rotate : Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? Drag.Section : Drag.Pan);
+    }
+
+    /// <summary>Liegt der Bildschirmpunkt auf A oder B der Schnittlinie? B gewinnt, wenn beide übereinanderliegen.</summary>
+    Drag? HandleAt(Point screen)
+    {
+        if (_section is not var (a, b)) return null;
+        if ((ToScreen(b) - screen).Length <= HandleRadius + 3) return Drag.MoveB;
+        if ((ToScreen(a) - screen).Length <= HandleRadius + 3) return Drag.MoveA;
+        return null;
+    }
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
@@ -364,7 +482,12 @@ sealed class MapView : FrameworkElement
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        if (_drag == Drag.None) return;
+        if (_drag == Drag.None)
+        {
+            // Über A oder B zeigt der Zeiger, dass sich der Punkt verschieben lässt
+            Cursor = HandleAt(e.GetPosition(this)) != null ? Cursors.SizeAll : Cursors.Hand;
+            return;
+        }
         var p = e.GetPosition(this);
         if (!_dragged && (p - _dragStart).Length < 4) return;
         _dragged = true;
@@ -388,6 +511,15 @@ sealed class MapView : FrameworkElement
             case Drag.Zoom:
             case Drag.Section:
                 Cursor = Cursors.Cross;
+                break;
+            case Drag.MoveA:
+            case Drag.MoveB:
+                Cursor = Cursors.SizeAll;
+                // Linie und Höhenschnitt folgen laufend; kürzer als ein Rasterfeld wird die Linie nicht
+                var (sa, sb) = _section!.Value;
+                var moved = ToWorld(p + _handleGrip);
+                var next = _drag == Drag.MoveA ? (moved, sb) : (sa, moved);
+                if ((next.Item2 - next.Item1).Length >= Grid) Section = next;
                 break;
         }
         InvalidateVisual();
@@ -422,6 +554,7 @@ sealed class MapView : FrameworkElement
             if ((b - a).Length >= Grid) Section = (a, b);
         }
         else if (!_dragged && mode is Drag.Pan or Drag.Section) Click(p);
+        if (mode is Drag.MoveA or Drag.MoveB) Cursor = Cursors.SizeAll;
 
         InvalidateVisual();
         ViewChanged?.Invoke();
@@ -434,6 +567,18 @@ sealed class MapView : FrameworkElement
         foreach (var (pos, target) in _arrowHits)
             if ((pos - screen).Length < 14) { _center = target; _scale = Math.Max(_scale, 0.004); return; }
 
+        // Fragezeichen: erklären, warum an dieser Stelle nichts zu sehen ist
+        if (ProbeShown && (ToScreen(Probe!.At) - screen).Length <= ProbeRadius + 4)
+        {
+            SelectedObject = null;
+            SelectedBuilding = null;
+            SelectedPiece = null;
+            _level = null;
+            ProbeSelected = true;
+            SelectionChanged?.Invoke();
+            return;
+        }
+
         // Gruppe: hineinzoomen, bis sie zerfällt
         foreach (var (pos, radius, world) in _clusterHits)
             if ((pos - screen).Length <= radius + 3) { FitRect(world); return; }
@@ -442,6 +587,7 @@ sealed class MapView : FrameworkElement
         SelectedBuilding = null;
         SelectedPiece = null;
         _level = null;
+        ProbeSelected = false;
 
         double best = 8;
         foreach (var o in VisibleObjects())
@@ -468,15 +614,19 @@ sealed class MapView : FrameworkElement
         SelectionChanged?.Invoke();
     }
 
-    IEnumerable<MapBuilding> VisibleBuildings() => OnlyMods ? _buildings.Where(b => b.ModPieces > 0) : _buildings;
+    IEnumerable<MapBuilding> VisibleBuildings() => _buildings.Where(IsShown);
 
-    IEnumerable<MapObject> VisibleObjects() => _objects.Where(o =>
+    IEnumerable<MapObject> VisibleObjects() => _objects.Where(IsShown);
+
+    bool IsShown(MapBuilding b) => !OnlyMods || b.ModPieces > 0;
+
+    bool IsShown(MapObject o) =>
         (!OnlyMods || o.ModFolder != null) && o.Kind switch
         {
             MapObjectKind.Placeable => ShowPlaceables,
             MapObjectKind.Figure => ShowFigures,
             _ => ShowPlayers,
-        });
+        };
 
     /// <summary>0 = normal, 1 = Mod-Inhalt, 2 = Inhalt einer zum Entfernen angehakten Mod.</summary>
     int Status(MapBuilding b) => b.ModPieces == 0 ? 0 : b.Pieces.Any(IsSelectedModPiece) ? 2 : 1;
@@ -501,11 +651,29 @@ sealed class MapView : FrameworkElement
         else DrawClusters(dc, view);
 
         DrawEdgeArrows(dc, view);
+        DrawProbe(dc);
 
         if (_drag == Drag.Zoom && _dragged)
             dc.DrawRectangle(ZoomFill, ZoomPen, new Rect(_dragStart, _dragNow));
         if (_drag == Drag.Section && _dragged) DrawSectionLine(dc, ToWorld(_dragStart), ToWorld(_dragNow));
         else if (_section is { } s) DrawSectionLine(dc, s.A, s.B);
+    }
+
+    const double ProbeRadius = 10;
+    static readonly Brush ProbeFill = Frozen(Color.FromRgb(0xFF, 0xF4, 0xCC));
+    static readonly Pen ProbePen = FrozenPen(Color.FromRgb(0xB0, 0x6A, 0x00), 2);
+
+    /// <summary>„?“ an einem Sprungziel, an dem nichts gezeichnet wird; angeklickt mit Auswahlring.</summary>
+    void DrawProbe(DrawingContext dc)
+    {
+        if (!ProbeShown) return;
+        var c = ToScreen(Probe!.At);
+        if (ProbeSelected) dc.DrawEllipse(null, SelectionPen, c, ProbeRadius + 4, ProbeRadius + 4);
+        dc.DrawEllipse(ProbeFill, ProbePen, c, ProbeRadius, ProbeRadius);
+        var text = new FormattedText("?", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+            new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal), 14,
+            ProbePen.Brush, VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        dc.DrawText(text, new Point(c.X - text.Width / 2, c.Y - text.Height / 2));
     }
 
     /// <summary>Schnittlinie mit dem Streifen, aus dem der Höhenschnitt gezeichnet wird; A und B an den Enden.</summary>
@@ -550,7 +718,7 @@ sealed class MapView : FrameworkElement
         foreach (var (p, label) in new[] { (a, "A"), (b, "B") })
         {
             var sp = ToScreen(p);
-            dc.DrawEllipse(Brushes.White, SelectionPen, sp, 8, 8);
+            dc.DrawEllipse(Brushes.White, SelectionPen, sp, HandleRadius, HandleRadius);
             var text = new FormattedText(label, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 10, SelectionPen.Brush, dpi);
             dc.DrawText(text, new Point(sp.X - text.Width / 2, sp.Y - text.Height / 2));
         }
@@ -736,7 +904,6 @@ sealed class MapView : FrameworkElement
     {
         double px = 1 / _scale;                         // ein Bildschirmpixel in Welteinheiten
         double lineWidth = Math.Max(20, 2.2 * px);       // Wände und Zäune nie dünner als gut 2 Pixel
-        double postWidth = Math.Max(PillarSize, 3.5 * px); // Pfeiler nie kleiner als gut 3 Pixel
         bool outlines = Grid * _scale >= 14;             // Umrisse erst, wenn ein Rasterfeld groß genug ist
         foreach (var l in layers)
         {
@@ -744,14 +911,20 @@ sealed class MapView : FrameworkElement
             if (fade) dc.PushOpacity(0.25);
             var fill = l.Status switch { 1 => ((SolidColorBrush)ModBrush).Color, 2 => ((SolidColorBrush)SelectedModBrush).Color, 3 => ((SolidColorBrush)RiskBrush).Color, _ => Lighten(owner, l.Level) };
             var edge = l.Status switch { 1 => ModEdge, 2 => SelectedModEdge, 3 => RiskEdge, _ => Darken(fill, 0.62) };
-            if (l.Draw != PieceDraw.Area)
+            if (l.Draw == PieceDraw.Post)
             {
-                // Wände, Zäune und Pfeiler dunkel. Farbige bekommen einen dunklen Rand: erst breit in
-                // Randfarbe, dann schmaler darüber. Pfeiler sind ein ganz kurzer Strich mit eckigen
-                // Enden, also ein Quadrat in Strichbreite, gedreht wie das Teil
-                double width = l.Draw == PieceDraw.Post ? postWidth : lineWidth;
-                if (l.Status != 0) dc.DrawGeometry(null, LinePen(edge, width + 3 * px), l.Geometry);
-                dc.DrawGeometry(null, LinePen(l.Status == 0 ? Darken(fill, 0.55) : fill, width), l.Geometry);
+                // Pfeiler dunkel wie Wände, als Quadrat in ihrer echten Größe. Der Stift rundum hält sie
+                // auch weit herausgezoomt sichtbar; farbige bekommen wie Wände einen dunklen Rand
+                var color = l.Status == 0 ? Darken(fill, 0.55) : fill;
+                if (l.Status != 0) dc.DrawGeometry(null, LinePen(edge, 5.5 * px), l.Geometry);
+                dc.DrawGeometry(new SolidColorBrush(color), LinePen(color, 2.5 * px), l.Geometry);
+            }
+            else if (l.Draw == PieceDraw.Line)
+            {
+                // Wände und Zäune dunkel. Farbige bekommen einen dunklen Rand: erst breit in
+                // Randfarbe, dann schmaler darüber
+                if (l.Status != 0) dc.DrawGeometry(null, LinePen(edge, lineWidth + 3 * px), l.Geometry);
+                dc.DrawGeometry(null, LinePen(l.Status == 0 ? Darken(fill, 0.55) : fill, lineWidth), l.Geometry);
             }
             else
             {
@@ -902,7 +1075,24 @@ sealed class MapView : FrameworkElement
 
     static PieceDraw DrawOf(PieceShape s) => s switch { PieceShape.Wall => PieceDraw.Line, PieceShape.Pillar => PieceDraw.Post, _ => PieceDraw.Area };
 
-    const double PillarSize = 44; // Kantenlänge eines Pfeilers, geschätzt
+    /// <summary>
+    /// Kantenlänge eines Pfeilers. Gemessen an den Modellen in den Spieldateien (Hüllkörper); die Bauarten
+    /// unterscheiden sich deutlich, von 25 (Viertelpfeiler) bis 96 (Glas). Unbekannte bekommen einen Mittelwert.
+    /// </summary>
+    static double PillarSize(string cls)
+    {
+        var c = SaveGame.ShortClass(cls).ToLowerInvariant();
+        if (c.Contains("quarter")) return 25;
+        if (c.Contains("strut")) return 56;
+        if (c.Contains("glass")) return 96;
+        if (c.Contains("nemedia")) return 90;
+        if (c.Contains("salvage") || c.Contains("aesir")) return 86;
+        if (c.Contains("turan")) return 75;
+        if (c.Contains("argos")) return 65;
+        if (c.Contains("aquilonia")) return 58;
+        if (c.Contains("stable")) return 42;
+        return 64;
+    }
 
     static bool ShortHas(string cls, string part) => SaveGame.ShortClass(cls).Contains(part, StringComparison.OrdinalIgnoreCase);
 
@@ -939,7 +1129,7 @@ sealed class MapView : FrameworkElement
         return Shape(p.Class) switch
         {
             PieceShape.Wall => [T(-10, -Grid / 2), T(10, -Grid / 2), T(10, Grid / 2), T(-10, Grid / 2)],
-            PieceShape.Pillar => [T(-PillarSize / 2, -PillarSize / 2), T(PillarSize / 2, -PillarSize / 2), T(PillarSize / 2, PillarSize / 2), T(-PillarSize / 2, PillarSize / 2)],
+            PieceShape.Pillar => PillarOutline(PillarSize(p.Class) / 2, T),
             // Zaunfundament: schmaler Balken unter dem Zaun
             // Brücke: 256 breit, vom Drehpunkt 128 nach hinten und bis zu 640 in Blickrichtung
             PieceShape.Bridge => BridgeOutline(p.Class, T),
@@ -971,6 +1161,8 @@ sealed class MapView : FrameworkElement
         return 0;
     }
 
+    static Point[] PillarOutline(double h, Func<double, double, Point> T) => [T(-h, -h), T(h, -h), T(h, h), T(-h, h)];
+
     static Point[] BridgeOutline(string cls, Func<double, double, Point> T)
     {
         var (from, to) = Support.BridgeSpan(cls);
@@ -983,12 +1175,10 @@ sealed class MapView : FrameworkElement
         var draw = DrawOf(Shape(p.Class));
         if (draw == PieceDraw.Post)
         {
-            // Pfeiler: winziger Strich in Blickrichtung, die Stiftbreite macht daraus ein Quadrat
-            double a = p.Yaw * Math.PI / 180;
-            var d = new Vector(Math.Cos(a), Math.Sin(a)) * 0.5;
-            var c = new Point(p.X, p.Y);
-            ctx.BeginFigure(c - d, isFilled: false, isClosed: false);
-            ctx.LineTo(c + d, isStroked: true, isSmoothJoin: false);
+            // Pfeiler: gefülltes Quadrat, gedreht wie das Teil
+            var square = Outline(p);
+            ctx.BeginFigure(square[0], isFilled: true, isClosed: true);
+            ctx.PolyLineTo(square[1..], isStroked: true, isSmoothJoin: false);
             return;
         }
         if (draw == PieceDraw.Line)

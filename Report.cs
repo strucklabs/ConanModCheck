@@ -78,8 +78,8 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
     public static (int Items, int Learned) ItemCounts(SaveGame save, ModPackage mod)
     {
         var hits = save.Items.Where(i => mod.NewIds.Contains(i.TemplateId)).ToList();
-        int learned = hits.Count(i => save.Characters.ContainsKey(i.OwnerId) && i.InvType == 6);
-        int physical = hits.Count(i => !save.Characters.ContainsKey(i.OwnerId) || i.InvType is 0 or 1 or 2);
+        int learned = hits.Count(i => save.Characters.ContainsKey(i.OwnerId) && InventoryKinds.IsLearned(i.InvType));
+        int physical = hits.Count(i => !save.Characters.ContainsKey(i.OwnerId) || InventoryKinds.IsItems(i.InvType));
         return (physical, learned);
     }
 
@@ -297,10 +297,13 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
                 w.WriteLine($"    {InventoryName(group.Key, byType.Key)}: {string.Join(", ", ids)}");
             }
         }
-        int learned = hits.Count(i => save.Characters.ContainsKey(i.OwnerId) && i.InvType == 6);
-        int physical = hits.Count - learned;
+        bool character(InventoryItem i) => save.Characters.ContainsKey(i.OwnerId);
+        int learned = hits.Count(i => character(i) && InventoryKinds.IsLearned(i.InvType));
+        int unknown = hits.Count(i => character(i) && !InventoryKinds.IsKnown(i.InvType));
+        int physical = hits.Count - learned - unknown;
         if (physical > 0) findings.Add(L.F("{0} Items aus der Mod verschwinden aus Inventaren und Behältern.", physical));
-        if (learned > 0) findings.Add(L.F("{0} erlernte Rezepte oder Talente der Mod verfallen.", learned));
+        if (learned > 0) findings.Add(L.F("{0} erlernte Rezepte, Talente, Zauber oder Lore-Einträge der Mod verfallen.", learned));
+        if (unknown > 0) findings.Add(L.F("{0} Einträge in Sonderinventaren unbekannter Bedeutung passen zur Mod; die Bereinigung lässt sie stehen.", unknown));
         w.WriteLine();
     }
 
@@ -392,29 +395,43 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
     // ---------- Sonderinventare ----------
 
     /// <summary>
-    /// Einträge in den Inventar-Typen 3 und 7, deren ID weder zum Spiel noch zu einer geprüften Mod
-    /// passt. Was diese Typen genau enthalten, ist nicht bekannt; deshalb nur zur Anzeige.
+    /// Sonderinventare von Spielerfiguren (alles außer Inventar, Ausrüstung, Schnellleiste und Erlerntem):
+    /// je Typ, woher die Einträge stammen – aus dem Spiel, aus einer geprüften Mod (mit Tabelle) oder
+    /// unbekannt. Unbekannte Typen fasst die Bereinigung nie an.
     /// </summary>
     void WriteSpecialInventories()
     {
-        if (game == null) return;
-        var known = new HashSet<long>(game.ItemIds.Concat(game.FeatIds).Concat((knownMods ?? mods).SelectMany(m => m.NewIds)));
-        var unknown = save.Items.Where(i => i.InvType is 3 or 7 && !known.Contains(i.TemplateId)).ToList();
-        if (unknown.Count == 0) return;
+        var special = save.Items.Where(i => save.Characters.ContainsKey(i.OwnerId) && !InventoryKinds.IsItems(i.InvType) && i.InvType != 6).ToList();
+        if (special.Count == 0) return;
+        var modOf = new Dictionary<long, ModPackage>();
+        foreach (var m in knownMods ?? mods)
+            foreach (var id in m.NewIds) modOf.TryAdd(id, m);
 
-        Heading(L.T("Unbekannte Einträge in Sonderinventaren"));
-        w.WriteLine(L.T("Inventar-Typ 3 und 7 sind Sonderinventare von Spielfiguren, deren Bedeutung nicht genau bekannt ist."));
-        w.WriteLine(L.T("Diese Einträge passen zu keinem Item oder Talent des Spiels und keiner geprüften Mod. Nur zur Anzeige; die Bereinigung fasst sie nicht an."));
+        Heading(L.T("Sonderinventare von Spielerfiguren"));
+        w.WriteLine(L.T("Neben Inventar, Ausrüstung, Schnellleiste und Erlerntem führt das Spiel weitere Listen je Spielerfigur. Zugeordnet wird über die Datentabellen von Spiel und geprüften Mods."));
+        w.WriteLine(L.T("Hinweis: Einträge in Inventaren unbekannter Bedeutung entfernt die Bereinigung nie, auch wenn sie zu einer entfernten Mod gehören."));
         w.WriteLine();
-        foreach (var type in unknown.GroupBy(i => i.InvType).OrderBy(g => g.Key))
+        foreach (var type in special.GroupBy(i => i.InvType).OrderBy(g => g.Key))
         {
-            w.WriteLine(L.F("Inventar-Typ {0}: {1} Einträge, {2} verschiedene IDs, bei {3} Figuren", type.Key, type.Count(),
+            w.WriteLine(L.F("{0}: {1} Einträge, {2} verschiedene IDs, bei {3} Figuren", InventoryKinds.Name(true, type.Key), type.Count(),
                 type.Select(i => i.TemplateId).Distinct().Count(), type.Select(i => i.OwnerId).Distinct().Count()));
-            var ids = type.GroupBy(i => i.TemplateId).OrderBy(g => g.Key).ToList();
-            foreach (var g in ids.Take(30))
-                w.WriteLine("  " + L.F("{0}: {1}× bei {2}", _names.Label(g.Key), g.Count(),
-                    string.Join(", ", g.Select(i => save.Characters.TryGetValue(i.OwnerId, out var n) ? n : save.DescribeInventoryOwner(i.OwnerId)).Distinct().Take(4))));
-            if (ids.Count > 30) w.WriteLine("  " + L.F("… und {0} weitere IDs", ids.Count - 30));
+            int fromGame = type.Count(i => game != null && game.RowIds.Contains(i.TemplateId));
+            if (fromGame > 0) w.WriteLine("  " + L.F("aus dem Spiel: {0}", fromGame));
+            foreach (var byMod in type.Where(i => modOf.ContainsKey(i.TemplateId)).GroupBy(i => modOf[i.TemplateId]).OrderBy(g => g.Key.Name))
+            {
+                var tables = byMod.Select(i => byMod.Key.IdTables.GetValueOrDefault(i.TemplateId)).Where(t => t != null).Distinct().Take(3);
+                w.WriteLine("  " + L.F("aus der Mod {0}: {1} (Tabelle {2})", byMod.Key.Name, byMod.Count(), string.Join(", ", tables)));
+            }
+            var unknown = type.Where(i => !modOf.ContainsKey(i.TemplateId) && !(game != null && game.RowIds.Contains(i.TemplateId))).ToList();
+            if (unknown.Count > 0)
+            {
+                w.WriteLine("  " + L.F("Herkunft unbekannt: {0}", unknown.Count) + (game == null ? " " + L.T("(ohne Spieldateien nicht prüfbar)") : ""));
+                var ids = unknown.GroupBy(i => i.TemplateId).OrderBy(g => g.Key).ToList();
+                foreach (var g in ids.Take(20))
+                    w.WriteLine("    " + L.F("{0}: {1}× bei {2}", _names.Label(g.Key), g.Count(),
+                        string.Join(", ", g.Select(i => save.Characters.TryGetValue(i.OwnerId, out var n) ? n : save.DescribeInventoryOwner(i.OwnerId)).Distinct().Take(4))));
+                if (ids.Count > 20) w.WriteLine("    " + L.F("… und {0} weitere IDs", ids.Count - 20));
+            }
             w.WriteLine();
         }
     }
@@ -444,20 +461,9 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
     }
 
     /// <summary>Gegenstände, keine erlernten Rezepte o. ä.: alles in Behältern, bei Spielfiguren nur Inventar, Ausrüstung und Schnellleiste.</summary>
-    bool IsPhysicalItem(InventoryItem i) => !save.Characters.ContainsKey(i.OwnerId) || i.InvType is 0 or 1 or 2;
+    bool IsPhysicalItem(InventoryItem i) => !save.Characters.ContainsKey(i.OwnerId) || InventoryKinds.IsItems(i.InvType);
 
-    string InventoryName(long ownerId, long invType)
-    {
-        if (!save.Characters.ContainsKey(ownerId)) return invType == 0 ? L.T("Inhalt") : L.F("Inventar-Typ {0}", invType);
-        return invType switch
-        {
-            0 => L.T("Inventar"),
-            1 => L.T("Ausrüstung"),
-            2 => L.T("Schnellleiste"),
-            6 => L.T("Erlernt"),
-            _ => L.F("Inventar-Typ {0}", invType),
-        };
-    }
+    string InventoryName(long ownerId, long invType) => InventoryKinds.Name(save.Characters.ContainsKey(ownerId), invType);
 
     // ---------- Hilfen ----------
 

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
 
@@ -9,8 +10,8 @@ namespace ConanModCheck.Gui;
 /// <summary>
 /// Macht aus dem Berichtstext ein formatiertes Dokument: Überschriften abgesetzt, Aufzählungen
 /// mit Punkten, Warnungen („!“) rot, Hinweise („Hinweis:“, „»“) gelb hinterlegt. Fließtext
-/// bricht an der Fensterbreite um; Folgezeilen rücken unter den Text ein. Nur Tabellen bleiben
-/// in fester Schrift. Der Text selbst bleibt unverändert, damit Speichern und Kopieren weiterhin
+/// bricht an der Fensterbreite um; Folgezeilen rücken unter den Text ein. Tabellen stehen in fester
+/// Schrift und brechen nie um; ist das Fenster zu schmal, lassen sie sich waagerecht verschieben. Der Text selbst bleibt unverändert, damit Speichern und Kopieren weiterhin
 /// reinen Text liefern.
 /// </summary>
 /// <summary>Sprungziele für Links in Bericht und Details.</summary>
@@ -126,12 +127,15 @@ static class ReportDocument
         int hintIndent = -1;       // Einrückung eines laufenden Hinweises, -1 = keiner
         bool hintOpen = false;     // die letzte Hinweiszeile endet mitten im Satz
         bool gap = false;          // vorher kam eine Leerzeile: nächsten Absatz etwas absetzen
+        TextBlock? table = null;   // laufende Tabelle, an die weitere Zeilen angehängt werden
 
         for (int i = 0; i < lines.Length; i++)
         {
             var line = lines[i];
             var trimmed = line.TrimStart();
             int indent = line.Length - trimmed.Length;
+            bool isTable = TableGap.Matches(trimmed).Count >= 2 || WideGap.IsMatch(trimmed);
+            if (!isTable) table = null; // alles andere (auch Überschriften) beendet eine Tabelle
 
             if (IsRule(line, '=')) continue;
             if (i + 1 < lines.Length && IsRule(lines[i + 1], '=') && i > 0 && IsRule(lines[i - 1], '='))
@@ -164,14 +168,25 @@ static class ReportDocument
             double top = gap ? 9 : 1;
             gap = false;
 
-            // Tabellen in fester Schrift, sonst stehen die Spalten nicht untereinander
-            if (TableGap.Matches(trimmed).Count >= 2 || WideGap.IsMatch(trimmed))
+            // Tabellen in fester Schrift, sonst stehen die Spalten nicht untereinander. Umbrechen
+            // würde die Spalten zerreißen, deshalb ohne Umbruch und bei Bedarf waagerecht verschiebbar
+            if (isTable)
             {
                 hintIndent = -1;
-                var t = Para(line.TrimEnd(), top: top);
-                t.FontFamily = Mono;
-                t.FontSize = 12.5;
-                doc.Blocks.Add(t);
+                if (table == null || top > 1)
+                {
+                    table = new TextBlock { FontFamily = Mono, FontSize = 12.5, TextWrapping = TextWrapping.NoWrap };
+                    var scroll = new ScrollViewer
+                    {
+                        Content = table,
+                        HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                        VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                        Focusable = false,
+                    };
+                    doc.Blocks.Add(new BlockUIContainer(scroll) { Margin = new Thickness(0, top, 0, 0) });
+                }
+                else table.Inlines.Add(new LineBreak());
+                AddText(table.Inlines, line.TrimEnd());
                 continue;
             }
 

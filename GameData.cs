@@ -17,6 +17,13 @@ sealed class GameData : IDisposable
     public HashSet<long> ItemIds { get; } = [];
     public HashSet<long> FeatIds { get; } = [];
 
+    /// <summary>
+    /// Zeilennummern aller Datentabellen des Spiels (Items, Talente, Zauber, Lore, Emotes, Farben …).
+    /// Eine Nummer, die das Spiel irgendwo verwendet, gilt nie als eigene ID einer Mod: Hilfstabellen
+    /// von Mods zählen oft ab 0 oder 1 und träfen sonst zufällig Spieldaten im Spielstand.
+    /// </summary>
+    public HashSet<long> RowIds { get; } = [];
+
     /// <summary>ID → Verweis auf den Namen (aus den Item- und Talent-Tabellen).</summary>
     public Dictionary<long, TextRef> Texts { get; } = [];
 
@@ -55,9 +62,13 @@ sealed class GameData : IDisposable
         foreach (var path in game._fileIndex.Keys.Where(p => p.EndsWith(".uasset", StringComparison.OrdinalIgnoreCase)))
         {
             var kind = TableKind(path);
+            if (kind == null && !MayBeTable(path)) continue;
+            byte[] package;
+            List<string> names;
+            try { package = game.Read(path); names = ZenPackage.ReadNames(package); }
+            catch (Exception) { continue; }
+            if (ZenPackage.IsDataTable(names)) game.RowIds.UnionWith(ZenPackage.NumericNames(names));
             if (kind == null) continue;
-            var package = game.Read(path);
-            var names = ZenPackage.ReadNames(package);
             var target = kind == "feat" ? game.FeatIds : game.ItemIds;
             target.UnionWith(ZenPackage.NumericNames(names));
 
@@ -97,6 +108,16 @@ sealed class GameData : IDisposable
         {
             // Leere oder unbekannte Pak-Archive enthalten keine Sprachdateien
         }
+    }
+
+    /// <summary>
+    /// Kommt die Datei als Datentabelle in Frage? Nur diese werden gelesen, sonst dauerte das Laden zu
+    /// lange. Datentabellen des Spiels heißen …Table…, DT_… oder …DataTable….
+    /// </summary>
+    static bool MayBeTable(string path)
+    {
+        var name = Path.GetFileNameWithoutExtension(path);
+        return name.Contains("table", StringComparison.OrdinalIgnoreCase) || name.StartsWith("DT_", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Ordnet eine Spieltabelle anhand ihres Namens zu: "item", "feat" oder null.</summary>

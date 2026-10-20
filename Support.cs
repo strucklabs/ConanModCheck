@@ -41,10 +41,15 @@ static class Support
         return PieceKind.Other;
     }
 
-    /// <summary>Unter- und Oberkante eines Bauteils (Z).</summary>
+    /// <summary>
+    /// Unter- und Oberkante eines Bauteils (Z). Geprüft an den Spieldateien (Hüllkörper der Bauteil-Modelle)
+    /// und am Spielstand: Fundamente sind 256 hoch (gestapelte liegen 256 auseinander), Wände 256 mit dem
+    /// Drehpunkt auf halber Höhe, Pfeiler 256 mit dem Drehpunkt 96 über dem Boden. Zäune schwanken je nach
+    /// Bauart zwischen etwa 110 und 260, Decken zwischen 25 und 45; hier stehen Mittelwerte.
+    /// </summary>
     public static (double Bottom, double Top) Extent(BuildingPiece p) => KindOf(p.Class) switch
     {
-        PieceKind.Foundation or PieceKind.FenceFoundation => (p.Z - 64, p.Z),
+        PieceKind.Foundation or PieceKind.FenceFoundation => (p.Z - 256, p.Z),
         PieceKind.Ceiling or PieceKind.Bridge => (p.Z - 24, p.Z),
         PieceKind.Wall or PieceKind.Roof or PieceKind.Stair => (p.Z - 128, p.Z + 128),
         PieceKind.Pillar => (p.Z - 96, p.Z + 160),

@@ -7,8 +7,10 @@ namespace ConanModCheck.Gui;
 /// <summary>Reiter „Verzeichnis“ und die Sprünge zwischen Bericht, Verzeichnis, Besitz-Baum und Karte.</summary>
 public partial class MainWindow
 {
+    // Einträge der untersten Ebene; der Baum darüber entsteht beim Filtern
     List<DirEntry> _dirObjects = [];
     List<DirEntry> _dirItems = [];
+    bool _dirCanTellGameItems;
     readonly HashSet<long> _dirObjectIds = [];
     readonly HashSet<long> _dirItemIds = [];
 
@@ -19,9 +21,11 @@ public partial class MainWindow
     void RefreshDirectory()
     {
         if (_save == null) return;
-        var builder = new DirectoryBuilder(_save, ItemNames.Build(_game, _mods), ItemOrigin.Build(_game, _mods), IsFolderSelected, SelectedModNames().Contains);
+        var origin = ItemOrigin.Build(_game, _mods);
+        var builder = new DirectoryBuilder(_save, ItemNames.Build(_game, _mods), origin, IsFolderSelected, SelectedModNames().Contains);
         _dirObjects = builder.Objects();
         _dirItems = builder.Items();
+        _dirCanTellGameItems = origin.CanTellGameItems;
         _dirObjectIds.Clear();
         foreach (var e in _dirObjects) if (e.ObjectId is { } id) _dirObjectIds.Add(id);
         _dirItemIds.Clear();
@@ -39,7 +43,26 @@ public partial class MainWindow
         int minStatus = DirFilterBox.SelectedIndex switch { 1 => 1, 2 => 2, _ => 0 };
         var shown = source.Where(e => e.Status >= minStatus
             && (term.Length == 0 || e.SearchText.Contains(term, StringComparison.CurrentCultureIgnoreCase))).ToList();
-        DirTree.ItemsSource = shown;
+        var tree = DirectoryBuilder.Tree(shown, DirShowsItems, _dirCanTellGameItems);
+        // Bei einer Suche die Gruppen gleich aufklappen, solange es überschaubar bleibt
+        if (term.Length > 0 && shown.Count <= 300)
+            foreach (var top in tree)
+            {
+                top.IsExpanded = true;
+                foreach (var g in top.Members ?? []) if (g.Members != null) g.IsExpanded = true;
+            }
+        DirTree.ItemsSource = tree;
+    }
+
+    /// <summary>Weg von der obersten Ebene bis zum gesuchten Eintrag (über die Gruppen), sonst null.</summary>
+    static List<DirEntry>? FindPath(IEnumerable<DirEntry> level, Func<DirEntry, bool> match)
+    {
+        foreach (var e in level)
+        {
+            if (match(e)) return [e];
+            if (e.Members != null && FindPath(e.Members, match) is { } rest) { rest.Insert(0, e); return rest; }
+        }
+        return null;
     }
 
     void DirFilter_Changed(object sender, SelectionChangedEventArgs e) => ApplyDirFilter();
@@ -76,37 +99,53 @@ public partial class MainWindow
         Tabs.SelectedItem = DirectoryTabItem;
         DirModeBox.SelectedIndex = items ? 1 : 0;
         ApplyDirFilter();
-        var shown = (List<DirEntry>)DirTree.ItemsSource;
-        int index = shown.FindIndex(e => (items ? e.ItemId : e.ObjectId) == id);
-        if (index < 0)
+        bool Match(DirEntry e) => e.IsLeaf && e.Primary && (items ? e.ItemId : e.ObjectId) == id;
+        var path = FindPath((List<DirEntry>)DirTree.ItemsSource, Match);
+        if (path == null)
         {
             // Durch Suche oder Filter ausgeblendet: beides zurücksetzen
             DirSearchBox.Text = "";
             DirFilterBox.SelectedIndex = 0;
             ApplyDirFilter();
-            shown = (List<DirEntry>)DirTree.ItemsSource;
-            index = shown.FindIndex(e => (items ? e.ItemId : e.ObjectId) == id);
+            path = FindPath((List<DirEntry>)DirTree.ItemsSource, Match);
         }
-        if (index < 0) return;
-        var entry = shown[index];
-        entry.IsExpanded = true;
-        entry.IsSelected = true;
+        if (path == null) return;
+        foreach (var e in path) e.IsExpanded = true;
+        path[^1].IsSelected = true;
         // Nach dem Umschalten des Reiters die Zeile in den sichtbaren Bereich holen
-        Dispatcher.BeginInvoke(() => BringTopLevelIntoView(DirTree, index), System.Windows.Threading.DispatcherPriority.Loaded);
+        Dispatcher.BeginInvoke(() => BringPathIntoView(DirTree, path), System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
-    /// <summary>Holt eine Zeile der obersten Ebene in einer virtualisierten Baumansicht ins Bild.</summary>
-    static void BringTopLevelIntoView(TreeView tree, int index)
+    /// <summary>
+    /// Holt eine Zeile in einer virtualisierten Baumansicht ins Bild: Ebene für Ebene den Container
+    /// erzeugen lassen (sonst gibt es ihn noch nicht), dann die Zeile oben ins Bild scrollen.
+    /// </summary>
+    static void BringPathIntoView(TreeView tree, List<DirEntry> path)
     {
         tree.UpdateLayout();
-        if (FindChild<VirtualizingStackPanel>(tree) is { } panel) panel.BringIndexIntoViewPublic(index);
+        ItemsControl parent = tree;
+        TreeViewItem? target = null;
+        foreach (var entry in path)
+        {
+            int index = parent.Items.IndexOf(entry);
+            if (index < 0) return;
+            var item = parent.ItemContainerGenerator.ContainerFromIndex(index) as TreeViewItem;
+            if (item == null)
+            {
+                if (FindChild<VirtualizingStackPanel>(parent) is { } panel) panel.BringIndexIntoViewPublic(index);
+                parent.UpdateLayout();
+                item = parent.ItemContainerGenerator.ContainerFromIndex(index) as TreeViewItem;
+            }
+            if (item == null) return;
+            item.UpdateLayout();
+            parent = target = item;
+        }
         // Die Zeile oben ins Bild holen, damit die aufgeklappten Unterpunkte darunter sichtbar sind.
-        // Die Liste scrollt zeilenweise: Die Scrollposition ist die Nummer der obersten Zeile.
         // Erst wenn die Auswahl die Zeile ins Bild geholt hat (sonst schiebt sie sie wieder an den unteren Rand)
         tree.Dispatcher.BeginInvoke(() =>
         {
             if (FindChild<ScrollViewer>(tree) is not { } scroll) return;
-            if (tree.ItemContainerGenerator.ContainerFromIndex(index) is not TreeViewItem item) return;
+            if (target is not { } item) return;
             // Pixelweise: Abstand der Zeile zum oberen Rand ausrechnen und so weit scrollen (mit etwas Luft darüber)
             var top = item.TranslatePoint(new Point(0, 0), scroll).Y;
             scroll.ScrollToVerticalOffset(Math.Max(0, scroll.VerticalOffset + top - 24));
@@ -144,8 +183,8 @@ public partial class MainWindow
     bool OpenSelectedDirEntry()
     {
         if (DirTree.SelectedItem is not DirEntry entry) return false;
-        bool topLevel = ((IEnumerable<DirEntry>)DirTree.ItemsSource).Contains(entry);
-        if (topLevel) return false;
+        // Gruppen und die Einträge selbst sind kein Verweis; nur ihre Unterpunkte springen
+        if (entry.IsLeaf || entry.Members != null) return false;
         if (entry.ItemId is { } item && _dirItemIds.Contains(item)) { ShowItemInDirectory(item); return true; }
         if (entry.ObjectId is { } obj && _dirObjectIds.Contains(obj)) { ShowInDirectory(obj); return true; }
         return false;

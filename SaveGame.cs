@@ -49,9 +49,44 @@ sealed class SaveGame
     /// <summary>Komponenten mit gespeicherten Daten je Spielerfigur (Name vor dem Punkt, z. B. BP_ProgressionSystem_C).</summary>
     public Dictionary<long, HashSet<string>> CharacterComponents { get; } = [];
 
+    /// <summary>
+    /// Liest den Spielstand nur lesend. Danach liegen neben der game.db keine Dateien, die vorher nicht da waren.
+    /// </summary>
     public static SaveGame Load(string dbPath)
     {
-        var cs = new SqliteConnectionStringBuilder { DataSource = dbPath, Mode = SqliteOpenMode.ReadOnly }.ToString();
+        // Lesend geöffnet legt SQLite bei einer WAL-Datenbank -wal und -shm an, kann sie beim Schließen aber
+        // nicht selbst wegräumen (dafür bräuchte es Schreibzugriff). Was es vorher nicht gab, räumen wir danach weg.
+        bool hadWal = File.Exists(dbPath + "-wal"), hadShm = File.Exists(dbPath + "-shm");
+        try { return Read(dbPath); }
+        finally { RemoveLeftovers(dbPath, hadWal, hadShm); }
+    }
+
+    /// <summary>
+    /// Entfernt -wal/-shm, die erst durch das Lesen entstanden sind. Ein -wal mit Inhalt bleibt immer liegen,
+    /// ebenso alles, was ein anderes Programm (etwa der laufende Server) gerade offen hat.
+    /// </summary>
+    static void RemoveLeftovers(string dbPath, bool hadWal, bool hadShm)
+    {
+        string wal = dbPath + "-wal", shm = dbPath + "-shm";
+        if (!hadWal && File.Exists(wal) && new FileInfo(wal).Length == 0) DeleteIfUnused(wal);
+        if (!hadShm && File.Exists(shm)) DeleteIfUnused(shm);
+    }
+
+    /// <summary>Löscht die Datei nur, wenn sie sich exklusiv öffnen lässt, also niemand sonst sie benutzt.</summary>
+    static void DeleteIfUnused(string path)
+    {
+        try
+        {
+            using var f = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
+    static SaveGame Read(string dbPath)
+    {
+        // Ohne Pooling ist die Datei nach dem Schließen wirklich frei, auch wenn unterwegs ein Fehler auftritt
+        var cs = new SqliteConnectionStringBuilder { DataSource = dbPath, Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString();
         using var db = new SqliteConnection(cs);
         db.Open();
         var s = new SaveGame();
@@ -112,10 +147,7 @@ sealed class SaveGame
         foreach (var r in Query(db, "SELECT object_id, name, value FROM properties"))
             if (!r.IsDBNull(2)) s.ScanProperty(r.GetInt64(0), r.GetString(1), (byte[])r.GetValue(2));
 
-        // Keine Verbindung offen halten, sonst bleiben neben der game.db -wal/-shm-Dateien liegen
         db.Close();
-        SqliteConnection.ClearPool(db);
-
         return s;
     }
 

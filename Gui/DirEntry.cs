@@ -46,6 +46,21 @@ public sealed class DirEntry : INotifyPropertyChanged
     /// <summary>Text, in dem die Suche sucht (Zeile, Mod, Besitzer, Klasse).</summary>
     internal string SearchText { get; init; } = "";
 
+    /// <summary>Oberste Ebene, unter der der Eintrag steht: "" = Grundspiel, sonst Mod oder ein Sonderknoten (siehe DirectoryBuilder).</summary>
+    internal string Origin { get; init; } = "";
+
+    /// <summary>Name, unter dem gleichartige Einträge zusammengefasst werden; leer = keine Namensebene.</summary>
+    internal string Group { get; init; } = "";
+
+    /// <summary>Haupteintrag (Sprungziel). Zweiteinträge: gemischte Gebäude stehen zusätzlich bei jeder beteiligten Mod.</summary>
+    internal bool Primary { get; init; } = true;
+
+    /// <summary>Eintrag eines Objekts oder einer Item-Art, also unterhalb der Gruppen (kein Unterpunkt, keine Gruppe).</summary>
+    internal bool IsLeaf { get; init; }
+
+    /// <summary>Bei Gruppen: die Einträge darunter, für Sprünge ohne aufzuklappen.</summary>
+    internal IReadOnlyList<DirEntry>? Members { get; init; }
+
     public ObservableCollection<DirEntry> Children { get; } = [];
 
     internal DirEntry(string text, int status, WorldObject? location = null, Func<IEnumerable<DirEntry>>? load = null)

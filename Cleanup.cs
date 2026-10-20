@@ -29,10 +29,16 @@ sealed class Cleanup
 
     Cleanup(SaveGame save) => _save = save;
 
-    public static Cleanup Plan(SaveGame save, List<ModPackage> mods, GameData? game, bool includeContents, bool includeOrphans = false)
+    /// <param name="loaded">Alle geladenen Mods. Eine ID, die auch zu einer nicht ausgewählten Mod gehört, bleibt.</param>
+    public static Cleanup Plan(SaveGame save, List<ModPackage> mods, GameData? game, bool includeContents, bool includeOrphans = false,
+        IEnumerable<ModPackage>? loaded = null)
     {
         var plan = new Cleanup(save);
         var newIds = new HashSet<long>(mods.SelectMany(m => m.NewIds));
+        // Mehrdeutige IDs: Gehört eine Nummer auch zu einer Mod, die bleibt, ist nicht klar, wessen Eintrag es ist
+        var others = (loaded ?? []).Where(m => !mods.Contains(m)).ToList();
+        var shared = newIds.Where(id => others.Any(m => m.NewIds.Contains(id))).ToHashSet();
+        newIds.ExceptWith(shared);
         var removed = new HashSet<long>();
 
         foreach (var mod in mods)
@@ -71,8 +77,20 @@ sealed class Cleanup
             plan.Buffs.AddRange(save.Buffs.Where(b => ModPaths.BelongsTo(mod, b.Path)));
         }
 
-        // Mod-Items in Inventaren, die stehen bleiben
-        plan.Items.AddRange(save.Items.Where(i => newIds.Contains(i.TemplateId) && !removed.Contains(i.OwnerId)));
+        // Mod-Items in Inventaren, die stehen bleiben. Bei Spielerfiguren nur aus Inventaren, deren Bedeutung
+        // bekannt ist; Einträge in unbekannten Sonderinventaren werden nur genannt
+        var remaining = save.Items.Where(i => newIds.Contains(i.TemplateId) && !removed.Contains(i.OwnerId)).ToList();
+        plan.Items.AddRange(remaining.Where(i => !save.Characters.ContainsKey(i.OwnerId) || InventoryKinds.IsKnown(i.InvType)));
+        foreach (var type in remaining.Where(i => save.Characters.ContainsKey(i.OwnerId) && !InventoryKinds.IsKnown(i.InvType)).GroupBy(i => i.InvType).OrderBy(g => g.Key))
+            plan.Skipped.Add(L.F("{0} Einträge in Inventar-Typ {1} bei {2} Spielerfiguren passen zu den entfernten Mods. Die Bedeutung dieses Inventars ist nicht bekannt, deshalb bleiben sie unangetastet.",
+                type.Count(), type.Key, type.Select(i => i.OwnerId).Distinct().Count()));
+        if (shared.Count > 0)
+        {
+            int entries = save.Items.Count(i => shared.Contains(i.TemplateId) && !removed.Contains(i.OwnerId));
+            if (entries > 0)
+                plan.Skipped.Add(L.F("{0} Einträge mit IDs, die zugleich zu nicht ausgewählten Mods gehören ({1}). Wem sie gehören, ist nicht eindeutig; sie bleiben.",
+                    entries, string.Join(", ", others.Where(m => m.NewIds.Overlaps(shared)).Select(m => m.Name))));
+        }
         plan.MailTemplateIds.UnionWith(newIds);
 
         if (includeOrphans)

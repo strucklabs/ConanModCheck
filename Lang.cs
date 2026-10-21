@@ -31,4 +31,7 @@ static class L
 
     /// <summary>Ganzzahl mit Tausendertrennung in der gewählten Sprache.</summary>
     public static string N(long value) => value.ToString("N0", Numbers);
+
+    /// <summary>Text mit Anzahl: bei genau 1 die Einzahl-Vorlage, sonst die Mehrzahl (beide sind Übersetzungsschlüssel).</summary>
+    public static string P(long count, string one, string many, params object?[] args) => F(count == 1 ? one : many, args);
 }

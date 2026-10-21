@@ -55,7 +55,7 @@ sealed class DirectoryBuilder(SaveGame save, ItemNames names, ItemOrigin origin,
     {
         var folder = ModPaths.FolderOf(o.Class);
         bool building = save.Pieces.TryGetValue(o.Id, out var pieces);
-        string name = building ? L.F("Gebäude {0} – {1} Bauteile", o.Id, pieces!.Count)
+        string name = building ? L.P(pieces!.Count, "Gebäude {0} – 1 Bauteil", "Gebäude {0} – {1} Bauteile", o.Id, pieces!.Count)
             : (save.FigureNames.TryGetValue(o.Id, out var fn) ? fn : Ownership.PrettyClass(o.Class)) + $" (ID {o.Id})";
         long? owner = save.BuildingOwner.TryGetValue(o.Id, out var b) ? b
             : save.FollowerOwner.TryGetValue(o.Id, out var f) ? f
@@ -98,7 +98,7 @@ sealed class DirectoryBuilder(SaveGame save, ItemNames names, ItemOrigin origin,
         if (pieces != null)
         {
             var risk = Support.AtRisk(pieces, p => ModPaths.FolderOf(p.Class) is { } f && folderSelected(f));
-            if (risk.Count > 0) yield return Info(L.F("{0:N0} Teile stehen nur auf Teilen der angehakten Mods und könnten einstürzen (Näherung).", risk.Count), 2);
+            if (risk.Count > 0) yield return Info(L.P(risk.Count, "1 Teil steht nur auf Teilen der angehakten Mods und könnte einstürzen (Näherung).", "{0:N0} Teile stehen nur auf Teilen der angehakten Mods und könnten einstürzen (Näherung).", risk.Count), 2);
             foreach (var grp in pieces.GroupBy(p => p.Class).OrderByDescending(g => ModPaths.FolderOf(g.Key) != null).ThenByDescending(g => g.Count()))
             {
                 var f = ModPaths.FolderOf(grp.Key);

@@ -168,9 +168,9 @@ sealed class Ownership
                 .ToList();
             if (buildings.Count > 0)
             {
-                var bn = new OwnNode(OwnKind.Buildings, L.F("Gebäude: {0} mit {1:N0} Bauteilen", buildings.Count, buildings.Sum(b => b.Count)));
+                var bn = new OwnNode(OwnKind.Buildings, L.P(buildings.Sum(b => b.Count), "Gebäude: {0} mit 1 Bauteil", "Gebäude: {0} mit {1:N0} Bauteilen", buildings.Count, buildings.Sum(b => b.Count)));
                 foreach (var b in buildings)
-                    bn.Children.Add(new OwnNode(OwnKind.Building, L.F("Gebäude {0} – {1} Bauteile", b.Id, b.Count))
+                    bn.Children.Add(new OwnNode(OwnKind.Building, L.P(b.Count, "Gebäude {0} – 1 Bauteil", "Gebäude {0} – {1} Bauteile", b.Id, b.Count))
                     { Location = _save.Objects.GetValueOrDefault(b.Id) });
                 node.Children.Add(bn);
             }

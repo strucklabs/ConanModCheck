@@ -55,7 +55,7 @@ sealed class Cleanup
                     continue;
                 }
                 if (save.Objects.TryGetValue(id, out var o) && removed.Add(id))
-                    plan.Objects.Add((o, L.F("Gebäude aus {0}, {1} Bauteile", mod.Name, pieces.Count)));
+                    plan.Objects.Add((o, L.P(pieces.Count, "Gebäude aus {0}, 1 Bauteil", "Gebäude aus {0}, {1} Bauteile", mod.Name, pieces.Count)));
             }
 
             // Platzierte Objekte, NPCs und Mod-Steuerung

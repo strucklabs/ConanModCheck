@@ -179,9 +179,9 @@
                         <Button Content="Als Text speichern …" Margin="6,0,0,6" Click="SaveOwnership_Click" />
                     </WrapPanel>
                     <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource Hint}"
-                               Text="Gelb: Inhalte aus Mods, rot: aus Mods, die in der Übersicht zum Entfernen angehakt sind – übergeordnete Zeilen tragen die Farbe ihrer Inhalte. Zahlen in eckigen Klammern sind Stückzahlen, Namen in eckigen Klammern die Mod. Rechtsklick auf ein Objekt kopiert den Teleport-Befehl." />
-                    <TreeView x:Name="OwnershipTree" VirtualizingStackPanel.IsVirtualizing="True" PreviewMouseRightButtonDown="OwnershipTree_PreviewMouseRightButtonDown"
-                              MouseDoubleClick="OwnershipTree_MouseDoubleClick">
+                               Text="Gelb: Inhalte aus Mods, rot: aus Mods, die in der Übersicht zum Entfernen angehakt sind – übergeordnete Zeilen tragen die Farbe ihrer Inhalte. Zahlen in eckigen Klammern sind Stückzahlen, Namen in eckigen Klammern die Mod. Doppelklick auf ein Objekt springt ins Verzeichnis; Rechtsklick öffnet ein Menü (Karte, Verzeichnis, Teleport-Befehl, Zeile kopieren); Strg+C kopiert die Zeile." />
+                    <TreeView x:Name="OwnershipTree" VirtualizingStackPanel.IsVirtualizing="True" PreviewMouseRightButtonDown="Tree_PreviewMouseRightButtonDown"
+                              MouseDoubleClick="OwnershipTree_MouseDoubleClick" PreviewKeyDown="OwnershipTree_PreviewKeyDown" ContextMenuOpening="OwnershipTree_ContextMenuOpening">
                         <TreeView.ItemContainerStyle>
                             <Style TargetType="TreeViewItem">
                                 <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
@@ -201,10 +201,10 @@
                         </TreeView.ItemTemplate>
                         <TreeView.ContextMenu>
                             <ContextMenu>
-                                <MenuItem x:Name="ShowInDirectoryItem" Header="Im Verzeichnis zeigen" Click="TreeShowInDirectory_Click" />
                                 <MenuItem x:Name="ShowOnMapItem" Header="Auf der Karte zeigen" Click="TreeShowOnMap_Click" />
+                                <MenuItem x:Name="ShowInDirectoryItem" Header="Im Verzeichnis zeigen" Click="TreeShowInDirectory_Click" InputGestureText="Doppelklick" />
                                 <MenuItem x:Name="CopyTeleportItem" Header="Teleport-Befehl kopieren" Click="CopyTeleport_Click" />
-                                <MenuItem Header="Zeile kopieren" Click="CopyTreeLine_Click" />
+                                <MenuItem x:Name="CopyTreeLineItem" Header="Zeile kopieren" Click="CopyTreeLine_Click" InputGestureText="Strg+C" />
                             </ContextMenu>
                         </TreeView.ContextMenu>
                     </TreeView>
@@ -233,10 +233,11 @@
                                 ToolTip="Zurück dorthin, von wo aus hierher gesprungen wurde." />
                     </WrapPanel>
                     <TextBlock x:Name="DirHint" DockPanel.Dock="Bottom" Style="{StaticResource Hint}" TextWrapping="Wrap"
-                               Text="Was ist wo: alle Objekte und Item-Arten des Spielstands, geordnet nach Herkunft (Grundspiel, Mods) und Namen. Aufklappen zeigt Fundstellen, Besitzer und Inhalt; Koordinaten führen zur Karte, Doppelklick auf eine Fundstelle oder ein Item springt zu dessen Eintrag. Gelb: aus Mods, rot: aus angehakten Mods." />
+                               Text="Was ist wo: alle Objekte und Item-Arten des Spielstands, geordnet nach Herkunft (Grundspiel, Mods) und Namen. Aufklappen zeigt Fundstellen, Besitzer und Inhalt; Koordinaten führen zur Karte, Doppelklick auf eine Fundstelle oder ein Item springt zu dessen Eintrag (auch mit Enter). Rechtsklick öffnet ein Menü (Karte, Eintrag, Teleport-Befehl, Zeile kopieren); Strg+C kopiert die Zeile. Gelb: aus Mods, rot: aus angehakten Mods." />
                     <TreeView x:Name="DirTree" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling"
                               VirtualizingPanel.ScrollUnit="Pixel"
-                              MouseDoubleClick="DirTree_MouseDoubleClick">
+                              MouseDoubleClick="DirTree_MouseDoubleClick" PreviewMouseRightButtonDown="Tree_PreviewMouseRightButtonDown"
+                              PreviewKeyDown="DirTree_PreviewKeyDown" ContextMenuOpening="DirTree_ContextMenuOpening">
                         <TreeView.ItemContainerStyle>
                             <Style TargetType="TreeViewItem">
                                 <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
@@ -255,8 +256,10 @@
                         </TreeView.ItemTemplate>
                         <TreeView.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="Auf der Karte zeigen" Click="DirShowOnMap_Click" />
-                                <MenuItem Header="Zum Eintrag springen" Click="DirOpen_Click" />
+                                <MenuItem x:Name="DirShowOnMapItem" Header="Auf der Karte zeigen" Click="DirShowOnMap_Click" />
+                                <MenuItem x:Name="DirOpenItem" Header="Zum Eintrag springen" Click="DirOpen_Click" InputGestureText="Doppelklick" />
+                                <MenuItem x:Name="DirTeleportItem" Header="Teleport-Befehl kopieren" Click="DirTeleport_Click" />
+                                <MenuItem x:Name="DirCopyLineItem" Header="Zeile kopieren" Click="DirCopyLine_Click" InputGestureText="Strg+C" />
                             </ContextMenu>
                         </TreeView.ContextMenu>
                     </TreeView>

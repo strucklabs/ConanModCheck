@@ -34,6 +34,9 @@ static class UiTranslator
         if (o is HeaderedItemsControl { Header: string ih } hi) hi.Header = L.T(ih);
         if (o is ContentControl { Content: string content } cc and not Window) cc.Content = L.T(content);
         if (o is FrameworkElement { ToolTip: string tip } fe) fe.ToolTip = L.T(tip);
+        if (o is MenuItem { InputGestureText: { Length: > 0 } gesture } mi) mi.InputGestureText = L.T(gesture);
+        // Kontextmenüs hängen nicht im logischen Baum, sondern an einer Eigenschaft
+        if (o is FrameworkElement { ContextMenu: { } menu }) Walk(menu);
 
         foreach (var child in LogicalTreeHelper.GetChildren(o))
             if (child is DependencyObject d) Walk(d);

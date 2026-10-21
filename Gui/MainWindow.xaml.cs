@@ -498,8 +498,8 @@ public partial class MainWindow : Window
             var folders = b.Pieces.Select(p => ModPaths.FolderOf(p.Class)).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).Order().ToList();
             int status = folders.Any(IsFolderSelected) ? 2 : 1;
             int risk = status == 2 ? Map.RiskCount(b) : 0;
-            list.Add(new Finding(b.Id, L.F("{0} – Gebäude, {1:N0} Mod-Teile · {2}", string.Join(", ", folders), b.ModPieces, MapImages.IslandOf(b.Bounds.X).Name)
-                + (risk > 0 ? " · " + L.F("{0:N0} Teile gefährdet", risk) : ""),
+            list.Add(new Finding(b.Id, L.P(b.ModPieces, "{0} – Gebäude, 1 Mod-Teil · {2}", "{0} – Gebäude, {1:N0} Mod-Teile · {2}", string.Join(", ", folders), b.ModPieces, MapImages.IslandOf(b.Bounds.X).Name)
+                + (risk > 0 ? " · " + L.P(risk, "1 Teil gefährdet", "{0:N0} Teile gefährdet", risk) : ""),
                 status == 2 ? MapView.SelectedModBrush : MapView.ModBrush, status));
         }
         foreach (var o in _mapObjects.Where(o => o.ModFolder != null))
@@ -610,11 +610,13 @@ public partial class MainWindow : Window
             text.AppendLine(L.F("Gebäude {0}", b.Id));
             text.AppendLine(L.F("Insel: {0}", MapImages.IslandOf(b.Bounds.X).Name));
             text.AppendLine(L.F("Besitzer: {0}", save.OwnerName(b.Owner)));
-            text.AppendLine(b.ModPieces > 0 ? L.F("{0:N0} Bauteile, davon {1:N0} aus Mods", b.Pieces.Count, b.ModPieces) : L.F("{0:N0} Bauteile", b.Pieces.Count));
+            text.AppendLine(b.ModPieces > 0
+                ? L.P(b.Pieces.Count, "1 Bauteil, aus einer Mod", "{0:N0} Bauteile, davon {1:N0} aus Mods", b.Pieces.Count, b.ModPieces)
+                : L.P(b.Pieces.Count, "1 Bauteil", "{0:N0} Bauteile", b.Pieces.Count));
             foreach (var g in b.Pieces.Select(p => ModPaths.FolderOf(p.Class)).Where(f => f != null).GroupBy(f => f).OrderByDescending(g => g.Count()))
                 text.AppendLine($"   {g.Key}: {g.Count():N0}");
             if (Map.RiskCount(b) is > 0 and var risk)
-                text.AppendLine(L.F("{0:N0} Teile stehen nur auf Teilen der angehakten Mods und könnten einstürzen (Näherung).", risk));
+                text.AppendLine(L.P(risk, "1 Teil steht nur auf Teilen der angehakten Mods und könnte einstürzen (Näherung).", "{0:N0} Teile stehen nur auf Teilen der angehakten Mods und könnten einstürzen (Näherung).", risk));
             if (save.Objects.TryGetValue(b.Id, out var o)) text.AppendLine(SaveGame.Coords(o));
             // Manche Gebäude haben ihren gespeicherten Bezugspunkt weit neben den Bauteilen
             if (MapView.OriginOffset(b) is > FarOrigin and var off)
@@ -643,7 +645,7 @@ public partial class MainWindow : Window
             LevelBox.Items.Clear();
             LevelBox.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = L.T("Alle Ebenen"), Tag = null });
             foreach (var l in levels)
-                LevelBox.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = L.F("Ebene {0} (Z {1:N0}) – {2} Teile", l.Level + 1, l.FloorZ, l.Count), Tag = l.Level });
+                LevelBox.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = L.P(l.Count, "Ebene {0} (Z {1:N0}) – 1 Teil", "Ebene {0} (Z {1:N0}) – {2} Teile", l.Level + 1, l.FloorZ, l.Count), Tag = l.Level });
             // Die gewählte Ebene bleibt erhalten, wenn die Auswahl nur neu beschrieben wird
             LevelBox.SelectedIndex = Math.Max(0, levels.FindIndex(l => l.Level == Map.Level) + 1);
             _updatingLevels = false;
@@ -724,18 +726,7 @@ public partial class MainWindow : Window
     void MapTeleport_Click(object sender, RoutedEventArgs e)
     {
         WorldObject? o = Map.SelectedObject?.Object ?? (Map.SelectedBuilding is { } b ? _save?.Objects.GetValueOrDefault(b.Id) : null);
-        if (o == null) return;
-        var (x, y, z) = (o.X, o.Y, o.Z);
-        // Liegt der Bezugspunkt neben dem Gebäude, lieber zum Bauteil nahe der Mitte (etwas darüber)
-        if (Map.SelectedObject == null && Map.SelectedBuilding is { } sb && MapView.OriginOffset(sb) > FarOrigin)
-        {
-            var c = sb.Center;
-            var p = sb.Pieces.MinBy(p => (p.X - c.X) * (p.X - c.X) + (p.Y - c.Y) * (p.Y - c.Y))!;
-            (x, y, z) = (p.X, p.Y, p.Z + 100);
-        }
-        var cmd = $"TeleportPlayer {x:0} {y:0} {z:0}";
-        Clipboard.SetText(cmd);
-        StatusText.Text = L.F("Kopiert: {0}", cmd);
+        if (o != null) CopyTeleport(o);
     }
 
     /// <summary>Mausrad über Bericht und Vorschau scrollt, auch ohne vorher hineinzuklicken.</summary>
@@ -885,15 +876,39 @@ public partial class MainWindow : Window
         if (e.Key == System.Windows.Input.Key.Enter) { RefreshOwnership(); e.Handled = true; }
     }
 
-    void OwnershipTree_PreviewMouseRightButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    /// <summary>Rechtsklick wählt in beiden Bäumen den Eintrag unter der Maus aus, damit das Menü dazu passt.</summary>
+    void Tree_PreviewMouseRightButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        // Rechtsklick soll den Eintrag unter der Maus auswählen, damit das Kontextmenü dazu passt
         var element = e.OriginalSource as DependencyObject;
         while (element != null && element is not System.Windows.Controls.TreeViewItem)
             element = System.Windows.Media.VisualTreeHelper.GetParent(element);
         if (element is System.Windows.Controls.TreeViewItem item) { item.IsSelected = true; item.Focus(); }
-        CopyTeleportItem.IsEnabled = (OwnershipTree.SelectedItem as OwnTreeItem)?.Teleport != null;
-        ShowOnMapItem.IsEnabled = ShowInDirectoryItem.IsEnabled = (OwnershipTree.SelectedItem as OwnTreeItem)?.Location != null;
+    }
+
+    /// <summary>Beim Öffnen (Maus oder Tastatur) nur freischalten, was zur Zeile passt.</summary>
+    void OwnershipTree_ContextMenuOpening(object sender, System.Windows.Controls.ContextMenuEventArgs e)
+    {
+        var item = OwnershipTree.SelectedItem as OwnTreeItem;
+        bool place = item?.Location is { } o && !(o.X == 0 && o.Y == 0);
+        ShowOnMapItem.IsEnabled = CopyTeleportItem.IsEnabled = place;
+        ShowInDirectoryItem.IsEnabled = item?.Location is { } d && _dirObjectIds.Contains(d.Id);
+        CopyTreeLineItem.IsEnabled = item != null;
+    }
+
+    /// <summary>Strg+C kopiert die Zeile, Enter springt wie ein Doppelklick ins Verzeichnis.</summary>
+    void OwnershipTree_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (OwnershipTree.SelectedItem is not OwnTreeItem item) return;
+        if (e.Key == System.Windows.Input.Key.C && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Control)
+        {
+            CopyLine(item.Text, item.Coords);
+            e.Handled = true;
+        }
+        else if (e.Key == System.Windows.Input.Key.Enter && item.Location is { } o && _dirObjectIds.Contains(o.Id))
+        {
+            ShowInDirectory(o.Id);
+            e.Handled = true;
+        }
     }
 
     void TreeShowOnMap_Click(object sender, RoutedEventArgs e) => ShowTreeItemOnMap();
@@ -913,16 +928,39 @@ public partial class MainWindow : Window
 
     void CopyTeleport_Click(object sender, RoutedEventArgs e)
     {
-        if (OwnershipTree.SelectedItem is OwnTreeItem { Teleport: { } cmd })
-        {
-            Clipboard.SetText(cmd);
-            StatusText.Text = L.F("Kopiert: {0}", cmd);
-        }
+        if ((OwnershipTree.SelectedItem as OwnTreeItem)?.Location is { } o) CopyTeleport(o);
     }
 
     void CopyTreeLine_Click(object sender, RoutedEventArgs e)
     {
-        if (OwnershipTree.SelectedItem is OwnTreeItem item) Clipboard.SetText(item.Text.Trim());
+        if (OwnershipTree.SelectedItem is OwnTreeItem item) CopyLine(item.Text, item.Coords);
+    }
+
+    /// <summary>Zeile samt Koordinaten in die Zwischenablage.</summary>
+    void CopyLine(string text, string coords)
+    {
+        var line = text.Trim() + (string.IsNullOrEmpty(coords) ? "" : "   " + coords);
+        Clipboard.SetText(line);
+        StatusText.Text = L.F("Kopiert: {0}", line);
+    }
+
+    /// <summary>
+    /// Teleport-Befehl zu einem Objekt in die Zwischenablage. Bei Gebäuden, deren gespeicherter Bezugspunkt
+    /// neben den Bauteilen liegt, geht es zum Bauteil nahe der Mitte (etwas darüber), wie auf der Karte.
+    /// </summary>
+    void CopyTeleport(WorldObject o)
+    {
+        var (x, y, z) = (o.X, o.Y, o.Z);
+        if (_save != null && _save.Pieces.TryGetValue(o.Id, out var pieces) && pieces.Count > 0
+            && pieces.Min(p => Math.Sqrt((p.X - o.X) * (p.X - o.X) + (p.Y - o.Y) * (p.Y - o.Y))) > FarOrigin)
+        {
+            double cx = (pieces.Min(p => p.X) + pieces.Max(p => p.X)) / 2, cy = (pieces.Min(p => p.Y) + pieces.Max(p => p.Y)) / 2;
+            var p = pieces.MinBy(p => (p.X - cx) * (p.X - cx) + (p.Y - cy) * (p.Y - cy))!;
+            (x, y, z) = (p.X, p.Y, p.Z + 100);
+        }
+        var cmd = $"TeleportPlayer {x:0} {y:0} {z:0}";
+        Clipboard.SetText(cmd);
+        StatusText.Text = L.F("Kopiert: {0}", cmd);
     }
 
     void SaveOwnership_Click(object sender, RoutedEventArgs e)

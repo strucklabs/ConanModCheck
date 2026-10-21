@@ -174,6 +174,38 @@ public partial class MainWindow
 
     void DirOpen_Click(object sender, RoutedEventArgs e) => OpenSelectedDirEntry();
 
+    void DirTeleport_Click(object sender, RoutedEventArgs e)
+    {
+        if (DirTree.SelectedItem is DirEntry { Location: { } o }) CopyTeleport(o);
+    }
+
+    void DirCopyLine_Click(object sender, RoutedEventArgs e)
+    {
+        if (DirTree.SelectedItem is DirEntry entry) CopyLine(entry.Text, entry.Coords);
+    }
+
+    /// <summary>Beim Öffnen (Maus oder Tastatur) nur freischalten, was zur Zeile passt.</summary>
+    void DirTree_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        var entry = DirTree.SelectedItem as DirEntry;
+        bool place = entry?.Location is { } o && !(o.X == 0 && o.Y == 0);
+        DirShowOnMapItem.IsEnabled = DirTeleportItem.IsEnabled = place;
+        DirOpenItem.IsEnabled = entry != null && CanOpen(entry);
+        DirCopyLineItem.IsEnabled = entry != null;
+    }
+
+    /// <summary>Strg+C kopiert die Zeile, Enter springt wie ein Doppelklick zum Eintrag.</summary>
+    void DirTree_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (DirTree.SelectedItem is not DirEntry entry) return;
+        if (e.Key == System.Windows.Input.Key.C && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Control)
+        {
+            CopyLine(entry.Text, entry.Coords);
+            e.Handled = true;
+        }
+        else if (e.Key == System.Windows.Input.Key.Enter && OpenSelectedDirEntry()) e.Handled = true;
+    }
+
     void DirTree_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         if (OpenSelectedDirEntry()) e.Handled = true;
@@ -182,13 +214,15 @@ public partial class MainWindow
     /// <summary>Unterpunkt mit Verweis: zum Eintrag des Objekts bzw. der Item-Art springen.</summary>
     bool OpenSelectedDirEntry()
     {
-        if (DirTree.SelectedItem is not DirEntry entry) return false;
-        // Gruppen und die Einträge selbst sind kein Verweis; nur ihre Unterpunkte springen
-        if (entry.IsLeaf || entry.Members != null) return false;
+        if (DirTree.SelectedItem is not DirEntry entry || !CanOpen(entry)) return false;
         if (entry.ItemId is { } item && _dirItemIds.Contains(item)) { ShowItemInDirectory(item); return true; }
-        if (entry.ObjectId is { } obj && _dirObjectIds.Contains(obj)) { ShowInDirectory(obj); return true; }
+        if (entry.ObjectId is { } obj) { ShowInDirectory(obj); return true; }
         return false;
     }
+
+    /// <summary>Gruppen und die Einträge selbst sind kein Verweis; nur ihre Unterpunkte springen.</summary>
+    bool CanOpen(DirEntry entry) => !entry.IsLeaf && entry.Members == null
+        && ((entry.ItemId is { } item && _dirItemIds.Contains(item)) || (entry.ObjectId is { } obj && _dirObjectIds.Contains(obj)));
 
     // ---------- Besitz-Baum ----------
 

@@ -260,15 +260,18 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
             atRisk += risk;
             w.WriteLine("  " + L.F("Gebäude {0}, {1}{2}: {3} von {4} Bauteilen aus der Mod", b.Id, who, where, b.Mod.Count, b.All.Count)
                 + (isMixed ? "  ← " + L.T("gemischt") : "")
-                + (risk > 0 ? ", " + L.F("{0} Teile stehen nur auf Mod-Teilen", risk) : ""));
+                + (risk > 0 ? ", " + L.P(risk, "1 Teil steht nur auf Mod-Teilen", "{0} Teile stehen nur auf Mod-Teilen", risk) : ""));
             foreach (var g in b.Mod.GroupBy(p => SaveGame.ShortClass(p.Class)).OrderByDescending(g => g.Count()).Take(6))
                 w.WriteLine($"    {g.Count(),4} × {g.Key}");
         }
-        findings.Add(L.F("{0} Bauteile in {1} Gebäuden verschwinden.", buildings.Sum(b => b.Mod.Count), buildings.Count));
+        int gone = buildings.Sum(b => b.Mod.Count);
+        findings.Add(buildings.Count == 1
+            ? L.P(gone, "1 Bauteil in einem Gebäude verschwindet.", "{0} Bauteile in einem Gebäude verschwinden.", gone)
+            : L.F("{0} Bauteile in {1} Gebäuden verschwinden.", gone, buildings.Count));
         if (mixed > 0)
             warnings.Add(L.F("{0} Gebäude bestehen teils aus Mod-Bauteilen, teils aus Bauteilen des Spiels. Fehlen die Mod-Teile, kann der Rest an Stabilität verlieren und einstürzen.", mixed));
         if (atRisk > 0)
-            warnings.Add(L.F("{0} Bauteile des Spiels stehen nur auf Teilen dieser Mod und könnten nach dem Entfernen einstürzen (Näherung; auf der Karte orange).", atRisk));
+            warnings.Add(L.P(atRisk, "1 Bauteil des Spiels steht nur auf Teilen dieser Mod und könnte nach dem Entfernen einstürzen (Näherung; auf der Karte orange).", "{0} Bauteile des Spiels stehen nur auf Teilen dieser Mod und könnten nach dem Entfernen einstürzen (Näherung; auf der Karte orange).", atRisk));
         w.WriteLine();
     }
 
@@ -351,6 +354,17 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
     }
 
     /// <summary>
+    /// Geladene Mods, die die Stufentabelle des Spiels ersetzen (…ExperienceSystemLevel außerhalb von /Game/Mods/,
+    /// z. B. Level_80_E), mit der höchsten Stufe ihrer Tabelle. Eigene Tabellen im Mod-Ordner ersetzen nichts.
+    /// </summary>
+    List<string> LevelMods() => (knownMods ?? mods)
+        .Select(m => (m.Name, Table: m.Tables.FirstOrDefault(t => !t.Path.Contains("/Mods/", StringComparison.OrdinalIgnoreCase)
+            && Path.GetFileNameWithoutExtension(t.Path).Contains("ExperienceSystemLevel", StringComparison.OrdinalIgnoreCase))))
+        .Where(x => x.Table is { Rows.Count: > 0 })
+        .Select(x => L.F("{0} (bis Stufe {1})", x.Name, x.Table!.Rows.Max()))
+        .ToList();
+
+    /// <summary>
     /// Je Spieler: Stufe, Attributpunkte, erlernte Talente und Rezepte nach Herkunft und Daten von
     /// Mod-Komponenten. Nur zur Anzeige – die Bereinigung verändert an Spielerfiguren nichts.
     /// </summary>
@@ -365,12 +379,15 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
         w.WriteLine();
 
         var origin = ItemOrigin.Build(game, knownMods ?? mods);
+        var levelMods = LevelMods();
         foreach (var (id, name) in save.Characters.OrderBy(c => c.Value, StringComparer.CurrentCultureIgnoreCase))
         {
             int level = save.CharacterInfos.TryGetValue(id, out var info) ? info.Level : 0;
             w.WriteLine(L.F("{0}, Stufe {1}", name, level));
             if (level > GameMaxLevel)
-                w.WriteLine("  " + L.F("Hinweis: Über der Höchststufe des Grundspiels ({0}). Vermutlich hebt eine Mod oder eine Servereinstellung die Grenze an; ohne sie kann sich die Stufe ändern.", GameMaxLevel));
+                w.WriteLine("  " + (levelMods.Count > 0
+                    ? L.F("Hinweis: Über der Höchststufe des Grundspiels ({0}). Die Stufentabelle des Spiels ersetzt: {1}. Ohne diese Mod kann sich die Stufe ändern.", GameMaxLevel, string.Join(", ", levelMods))
+                    : L.F("Hinweis: Über der Höchststufe des Grundspiels ({0}). Vermutlich hebt eine Mod oder eine Servereinstellung die Grenze an; ohne sie kann sich die Stufe ändern.", GameMaxLevel)));
 
             if (save.AttributePoints.TryGetValue(id, out var p))
                 w.WriteLine("  " + L.F("Attributpunkte: {0} gesamt, {1} verteilt, {2} frei",

@@ -130,6 +130,14 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
         Heading(L.F("Mod: {0}", mod.Name));
         w.WriteLine(L.F("Datei: {0}", mod.Source));
         w.WriteLine(L.F("Mod-Ordner: {0}", mod.ModFolders.Count > 0 ? string.Join(", ", mod.ModFolders.Order()) : L.T("keiner")));
+        if (mod.Versions.Count > 1)
+        {
+            // Mehrere Versionen derselben Mod: alle nennen und sagen, worin sie sich unterscheiden
+            w.WriteLine(L.F("Hinweis: {0} Versionen dieser Mod geladen und zusammengefasst; erkannt und entfernt werden die Reste aller Versionen.", mod.Versions.Count));
+            foreach (var v in mod.Versions)
+                w.WriteLine("  - " + L.F("{0} ({1}): {2}", v.Source, v.Date == DateTime.MinValue ? "?" : v.Date.ToString(L.English ? "yyyy-MM-dd" : "dd.MM.yyyy"),
+                    v.OnlyHere == 0 ? L.T("keine eigenen IDs, die nur hier vorkommen") : L.P(v.OnlyHere, "1 ID nur in dieser Version", "{0} IDs nur in dieser Version", v.OnlyHere)));
+        }
         w.WriteLine();
 
         var findings = new List<string>();  // Was beim Entfernen verloren geht oder sich ändert

@@ -55,6 +55,7 @@ static class Loader
                 catch (Exception ex) { log(L.F("Mod konnte nicht gelesen werden: {0} ({1})", source, ex.Message)); }
             }
         }
+        mods = ModPackage.MergeVersions(mods, log);
         foreach (var folder in folders)
             if (!mods.Any(m => m.ModFolders.Contains(folder))) mods.Add(ModPackage.FromFolder(folder));
         return mods;

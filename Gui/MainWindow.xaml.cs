@@ -47,6 +47,9 @@ public partial class MainWindow : Window
         foreach (var f in _settings.ModFiles.Where(f => File.Exists(f) || Directory.Exists(f))) _modFiles.Add(f);
         GameDirBox.Text = _settings.GameDir ?? "";
         OodleBox.Text = _settings.OodlePath ?? "";
+        if (_settings.LoadProblems.Count > 0)
+            Log(L.F("Die gespeicherten Einstellungen waren teilweise unlesbar und wurden übersprungen: {0}. Die alte Datei liegt als Kopie hier: {1}",
+                string.Join(", ", _settings.LoadProblems), GuiSettings.BackupPath));
     }
 
     // ---------- Auswahl ----------
@@ -190,7 +193,7 @@ public partial class MainWindow : Window
             AskAboutOodle();
             UpdateOodleInfo();
             SaveSettings();
-            SetBusy(false, L.F("Geprüft: {0} Mod-Ordner im Spielstand, {1} Mod-Datei(en) geladen.", _rows.Count, _mods.Count));
+            SetBusy(false, L.F("Geprüft: {0} Mod-Ordner im Spielstand, {1} Mod-Datei(en) geladen.", _rows.Count, _mods.Where(m => m.HasFile).Sum(m => Math.Max(1, m.Versions.Count))));
             if (game == null && Oodle.IsLoaded)
                 Log(L.T("Tipp: Unter „Einstellungen“ lässt sich der Conan Exiles-Ordner angeben."));
         }
@@ -412,7 +415,11 @@ public partial class MainWindow : Window
     // ---------- Karte ----------
 
     /// <summary>Eintrag der Fundstellen-Liste.</summary>
-    sealed record Finding(long Id, string Text, System.Windows.Media.Brush Brush, int Status);
+    sealed record Finding(long Id, string Text, System.Windows.Media.Brush Brush, int Status)
+    {
+        /// <summary>Name für Bildschirmleser und UI Automation (sonst die Felder des Datensatzes).</summary>
+        public override string ToString() => Text;
+    }
 
     void RefreshMap(bool keepView)
     {

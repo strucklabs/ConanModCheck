@@ -10,6 +10,10 @@ sealed record ModTable(string Path, bool IsOverride, HashSet<long> Rows)
     public List<long> MissingGameRows { get; init; } = [];
 }
 
+/// <summary>Eine von mehreren geladenen Versionen derselben Mod.</summary>
+/// <param name="OnlyHere">Eigene IDs, die nur diese Version mitbringt.</param>
+sealed record ModVersion(string Source, DateTime Date, int OnlyHere);
+
 /// <summary>
 /// Eine Mod-Datei (.pak/.utoc/.ucas, auch als Zip) und das, was sich daraus ablesen lässt.
 /// </summary>
@@ -54,6 +58,9 @@ sealed class ModPackage : IDisposable
     /// <summary>Übersetzungen aus dem Pak-Archiv der Mod, falls sie welche mitbringt.</summary>
     public Dictionary<(string, string), string> German { get; } = [];
     public Dictionary<(string, string), string> English { get; } = [];
+
+    /// <summary>Wurden mehrere Versionen dieser Mod geladen: alle, neueste zuerst (sonst leer).</summary>
+    public List<ModVersion> Versions { get; } = [];
 
     ModPackage(string name, string source, IoStoreContainer? container)
     {
@@ -150,6 +157,59 @@ sealed class ModPackage : IDisposable
     }
 
     public void Dispose() => _container?.Dispose();
+
+    /// <summary>
+    /// Fasst mehrfach geladene Versionen derselben Mod zusammen (gleicher Name und gleiche Mod-Ordner,
+    /// z. B. ExtractedMods vom Server und der Workshop-Ordner). Sonst gälte jede ID als „gehört auch zu
+    /// einer anderen Mod“ und die Bereinigung ließe alles stehen. Zur Mod gehören die IDs aller Versionen,
+    /// denn Reste jeder Version können im Spielstand stecken; Namen und Texte kommen bevorzugt aus der
+    /// neuesten Datei. Gleicher Name bei verschiedenen Mod-Ordnern bleibt getrennt (mit Hinweis).
+    /// </summary>
+    public static List<ModPackage> MergeVersions(List<ModPackage> mods, Action<string> log)
+    {
+        var result = new List<ModPackage>();
+        foreach (var byName in mods.GroupBy(m => m.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var groups = byName.GroupBy(m => string.Join("|", m.ModFolders.Order(StringComparer.OrdinalIgnoreCase)), StringComparer.OrdinalIgnoreCase).ToList();
+            if (groups.Count > 1)
+                log(L.F("Hinweis: Mehrere Mod-Dateien heißen {0}, enthalten aber verschiedene Mod-Ordner; sie werden getrennt geführt.", byName.Key));
+            foreach (var g in groups) result.Add(Merge(g.ToList(), log));
+        }
+        return result;
+    }
+
+    static ModPackage Merge(List<ModPackage> versions, Action<string> log)
+    {
+        if (versions.Count == 1) return versions[0];
+        static DateTime DateOf(ModPackage m)
+        {
+            var file = m.Source.Split(" → ")[0];
+            return File.Exists(file) ? File.GetLastWriteTime(file) : DateTime.MinValue;
+        }
+        var ordered = versions.OrderByDescending(DateOf).ToList();
+        var main = ordered[0];
+        foreach (var v in ordered)
+        {
+            var others = ordered.Where(o => o != v).SelectMany(o => o.NewIds).ToHashSet();
+            main.Versions.Add(new ModVersion(v.Source, DateOf(v), v.NewIds.Count(id => !others.Contains(id))));
+        }
+        foreach (var v in ordered.Skip(1))
+        {
+            main.NewIds.UnionWith(v.NewIds);
+            main.ChangedGameIds.UnionWith(v.ChangedGameIds);
+            main.AssetNames.UnionWith(v.AssetNames);
+            foreach (var (id, table) in v.IdTables) main.IdTables.TryAdd(id, table);
+            foreach (var (id, text) in v.Texts) main.Texts.TryAdd(id, text);
+            foreach (var (key, text) in v.German) main.German.TryAdd(key, text);
+            foreach (var (key, text) in v.English) main.English.TryAdd(key, text);
+            foreach (var f in v.OverriddenGameFiles.Where(f => !main.OverriddenGameFiles.Contains(f))) main.OverriddenGameFiles.Add(f);
+            foreach (var f in v.AddedOutsideModFolder.Where(f => !main.AddedOutsideModFolder.Contains(f))) main.AddedOutsideModFolder.Add(f);
+            foreach (var t in v.Tables.Where(t => !main.Tables.Any(m => m.Path.Equals(t.Path, StringComparison.OrdinalIgnoreCase)))) main.Tables.Add(t);
+            v.Dispose();
+        }
+        log(L.F("{0}: {1} Versionen geladen und zusammengefasst (neueste: {2})", main.Name, ordered.Count, main.Source));
+        return main;
+    }
 
     /// <summary>
     /// Sammelt Mod-Container aus Dateien und Ordnern. Zips werden in einen temporären Ordner

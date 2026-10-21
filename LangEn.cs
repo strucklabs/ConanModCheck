@@ -403,5 +403,14 @@ static class LangEn
         ["1 Bauteil des Spiels steht nur auf Teilen dieser Mod und könnte nach dem Entfernen einstürzen (Näherung; auf der Karte orange)."] = "1 game building piece rests only on pieces of this mod and could collapse after removal (approximation; orange on the map).",
         ["Hinweis: Über der Höchststufe des Grundspiels ({0}). Die Stufentabelle des Spiels ersetzt: {1}. Ohne diese Mod kann sich die Stufe ändern."] = "Note: Above the base game's maximum level ({0}). The game's level table is replaced by: {1}. Without this mod the level may change.",
         ["{0} (bis Stufe {1})"] = "{0} (up to level {1})",
+        ["Hinweis: Mehrere Mod-Dateien heißen {0}, enthalten aber verschiedene Mod-Ordner; sie werden getrennt geführt."] = "Note: Several mod files are called {0} but contain different mod folders; they are kept separate.",
+        ["{0}: {1} Versionen geladen und zusammengefasst (neueste: {2})"] = "{0}: {1} versions loaded and combined (newest: {2})",
+        ["Hinweis: {0} Versionen dieser Mod geladen und zusammengefasst; erkannt und entfernt werden die Reste aller Versionen."] = "Note: {0} versions of this mod loaded and combined; leftovers of all versions are detected and removed.",
+        ["{0} ({1}): {2}"] = "{0} ({1}): {2}",
+        ["keine eigenen IDs, die nur hier vorkommen"] = "no IDs that only occur here",
+        ["1 ID nur in dieser Version"] = "1 ID only in this version",
+        ["{0} IDs nur in dieser Version"] = "{0} IDs only in this version",
+        ["ganze Datei"] = "whole file",
+        ["Die gespeicherten Einstellungen waren teilweise unlesbar und wurden übersprungen: {0}. Die alte Datei liegt als Kopie hier: {1}"] = "Some saved settings could not be read and were skipped: {0}. A copy of the old file is here: {1}",
     };
 }

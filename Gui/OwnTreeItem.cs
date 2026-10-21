@@ -101,6 +101,9 @@ public sealed class OwnTreeItem : INotifyPropertyChanged
         foreach (var c in Children) c.CollapseAll();
     }
 
+    /// <summary>Name für Bildschirmleser und UI Automation (sonst der Klassenname).</summary>
+    public override string ToString() => string.IsNullOrEmpty(Coords) ? Text.Trim() : $"{Text.Trim()}  {Coords}";
+
     public event PropertyChangedEventHandler? PropertyChanged;
     void Changed(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 

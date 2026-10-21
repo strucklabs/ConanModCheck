@@ -97,6 +97,9 @@ public sealed class DirEntry : INotifyPropertyChanged
         set { if (_isSelected == value) return; _isSelected = value; Changed(nameof(IsSelected)); }
     }
 
+    /// <summary>Name für Bildschirmleser und UI Automation (sonst der Klassenname), auch bei noch nicht erzeugten Zeilen.</summary>
+    public override string ToString() => string.IsNullOrEmpty(Coords) ? Text : $"{Text}  {Coords}";
+
     public event PropertyChangedEventHandler? PropertyChanged;
     void Changed(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 

@@ -93,6 +93,17 @@ sealed class Cleanup
         }
         plan.MailTemplateIds.UnionWith(newIds);
 
+        // Quests der entfernten Mods: nur nennen, nie bereinigen
+        var quests = QuestData.Read(save);
+        var catalog = new QuestCatalog(game, loaded ?? mods);
+        var names = mods.Select(m => m.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var modQuests = quests.Quests.Where(q => catalog.OfQuest(q.Quest) is (QuestOrigin.Mod, { } m) && names.Contains(m)).ToList();
+        if (modQuests.Count > 0)
+            plan.Skipped.Add(L.F("{0} Quest-Einträge der entfernten Mods bei {1} Figuren bleiben: Quest-Daten liegen als Liste innerhalb eines Datenblocks an der Spielerfigur und werden nicht bereinigt.",
+                modQuests.Count, modQuests.Select(q => q.OwnerId).Distinct().Count()));
+        foreach (var m in catalog.ModsChangingGameQuests().Where(names.Contains))
+            plan.Skipped.Add(L.F("Die Mod {0} ersetzt Quest-Tabellen des Spiels; ohne sie können Aufgaben fehlen, die es nur in ihrer Fassung gibt, und Quests hängen bleiben.", m));
+
         if (includeOrphans)
         {
             var orphans = ConanModCheck.Orphans.Find(save);

@@ -52,6 +52,9 @@ sealed class SaveGame
     /// <summary>
     /// Liest den Spielstand nur lesend. Danach liegen neben der game.db keine Dateien, die vorher nicht da waren.
     /// </summary>
+    /// <summary>Rohdaten der Quest- und Reise-Eigenschaften (Figur, Eigenschaftsname), ausgewertet von <see cref="QuestData"/>.</summary>
+    public Dictionary<(long Id, string Name), byte[]> QuestBlobs { get; } = [];
+
     public static SaveGame Load(string dbPath)
     {
         // Lesend geöffnet legt SQLite bei einer WAL-Datenbank -wal und -shm an, kann sie beim Schließen aber
@@ -145,7 +148,12 @@ sealed class SaveGame
                 s.ModControllerIds.Add(r.GetInt64(0));
 
         foreach (var r in Query(db, "SELECT object_id, name, value FROM properties"))
-            if (!r.IsDBNull(2)) s.ScanProperty(r.GetInt64(0), r.GetString(1), (byte[])r.GetValue(2));
+        {
+            if (r.IsDBNull(2)) continue;
+            var value = (byte[])r.GetValue(2);
+            s.ScanProperty(r.GetInt64(0), r.GetString(1), value);
+            if (QuestData.IsQuestProperty(r.GetString(1))) s.QuestBlobs[(r.GetInt64(0), r.GetString(1))] = value;
+        }
 
         db.Close();
         return s;

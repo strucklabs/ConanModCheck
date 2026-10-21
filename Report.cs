@@ -27,6 +27,7 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
         Heading(L.T("Reste ohne Besitzer"));
         Orphans.Find(save).Write(w, _names.Label);
         WritePlayerAttributes();
+        WriteQuests();
         WriteSpecialInventories();
         WriteUnknownItems();
     }
@@ -148,6 +149,7 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
         WriteBuildingPieces(mod, findings, warnings);
         WriteItems(mod, findings);
         WriteOtherReferences(mod, findings);
+        WriteModQuests(mod, findings, warnings);
 
         Sub(L.T("Einschätzung"));
         if (warnings.Count == 0 && findings.Count == 0)
@@ -415,6 +417,73 @@ sealed class Report(SaveGame save, List<ModPackage> mods, GameData? game, TextWr
                     string.Join(", ", foreign.Select(c => $"{c.Component} ({c.Origin})"))));
             w.WriteLine();
         }
+    }
+
+    // ---------- Quests ----------
+
+    /// <summary>
+    /// Quests und Reise des Verbannten je Figur, mit Herkunft und Auffälligkeiten. Nur zur Anzeige:
+    /// Die Daten liegen als Liste innerhalb eines Datenblocks an der Figur und werden nicht bereinigt.
+    /// </summary>
+    void WriteQuests()
+    {
+        var data = QuestData.Read(save);
+        if (data.Quests.Count == 0 && data.Journeys.Count == 0 && data.Unreadable.Count == 0) return;
+        var catalog = new QuestCatalog(game, knownMods ?? mods);
+        Heading(L.T("Quests und Reise des Verbannten"));
+        w.WriteLine(QuestText.NotCleaned);
+        if (!catalog.CanCheck) w.WriteLine(L.T("Hinweis: Ohne Spieldateien lässt sich nicht prüfen, welche Quests und Aufgaben es im Spiel gibt."));
+        foreach (var m in catalog.ModsChangingGameQuests())
+            w.WriteLine("! " + L.F("Die Mod {0} ersetzt Quest-Tabellen des Spiels; ohne sie können Aufgaben fehlen, die es nur in ihrer Fassung gibt, und Quests hängen bleiben.", m));
+        w.WriteLine();
+
+        var owners = data.Quests.Select(q => q.OwnerId).Concat(data.Journeys.Select(j => j.OwnerId)).Concat(data.Unreadable.Select(u => u.OwnerId))
+            .Distinct().OrderBy(id => QuestText.Owner(save, id), StringComparer.CurrentCultureIgnoreCase);
+        foreach (var id in owners)
+        {
+            w.WriteLine(QuestText.Owner(save, id) + ":");
+            var quests = data.Quests.Where(q => q.OwnerId == id).OrderByDescending(q => q.Active).ThenBy(q => q.Quest, StringComparer.OrdinalIgnoreCase).ToList();
+            if (quests.Count == 0) w.WriteLine("  - " + L.T("Keine Quests begonnen."));
+            foreach (var q in quests)
+            {
+                var (origin, mod) = catalog.OfQuest(q.Quest);
+                var open = q.Tasks.Where(t => !t.Done).Select(t => t.Name).ToList();
+                w.WriteLine("  - " + (q.Active
+                    ? L.F("Aktiv: {0}{1} – seit {2}, zuletzt geändert {3}, aktuelle Aufgabe: {4}", q.Quest, QuestText.Tag(origin, mod), QuestText.Date(q.Started), QuestText.Date(q.Updated), open.Count == 0 ? L.T("keine") : string.Join(", ", open))
+                    : L.F("Abgeschlossen: {0}{1} – am {2}, {3} Aufgaben", q.Quest, QuestText.Tag(origin, mod), QuestText.Date(q.Updated), q.Tasks.Count)));
+                foreach (var (text, warning) in catalog.Notes(q, data, save.CharacterInfos.GetValueOrDefault(id)?.LastOnline)) w.WriteLine((warning ? "    ! " : "    ") + text);
+            }
+            if (data.Journeys.FirstOrDefault(j => j.OwnerId == id) is { } journey)
+            {
+                w.WriteLine("  - " + L.F("Reise des Verbannten: aktiv „{0}“, {1} von {2} Einträgen abgeschlossen, {3} Story-Stufen",
+                    journey.Active ?? L.T("keine"), journey.Entries.Count(e => e.Completed), journey.Entries.Count, journey.StoryStages));
+                var running = journey.Entries.Where(e => e.Unlocked && !e.Completed && e.Step > 0).ToList();
+                if (running.Count > 0) w.WriteLine("    " + L.F("In Arbeit: {0}", string.Join(", ", running.Select(e => $"{e.Name} ({e.Step}/{e.Steps})"))));
+                var unknown = catalog.UnknownJourneys(journey);
+                if (unknown.Count > 0) w.WriteLine("    ! " + L.F("Reise-Einträge, die es weder im Spiel noch in einer geladenen Mod gibt: {0}", string.Join(", ", unknown)));
+            }
+            foreach (var (_, property) in data.Unreadable.Where(u => u.OwnerId == id))
+                w.WriteLine("    ! " + L.F("Nicht vollständig lesbar: {0}", property));
+            w.WriteLine();
+        }
+    }
+
+    /// <summary>In den Details einer Mod: ihre Quests im Spielstand (werden nicht bereinigt).</summary>
+    void WriteModQuests(ModPackage mod, List<string> findings, List<string> warnings)
+    {
+        if (!mod.HasFile) return;
+        var catalog = new QuestCatalog(game, knownMods ?? mods);
+        if (catalog.ModsChangingGameQuests().Contains(mod.Name))
+            warnings.Add(L.F("Die Mod {0} ersetzt Quest-Tabellen des Spiels; ohne sie können Aufgaben fehlen, die es nur in ihrer Fassung gibt, und Quests hängen bleiben.", mod.Name));
+        if (mod.QuestNames.Count == 0 && mod.JourneyNames.Count == 0) return;
+        var data = QuestData.Read(save);
+        var own = data.Quests.Where(q => catalog.OfQuest(q.Quest) is (QuestOrigin.Mod, var m) && m == mod.Name).ToList();
+        if (own.Count == 0) return;
+        Sub(L.T("Quests"));
+        foreach (var q in own.OrderBy(q => q.Quest).ThenBy(q => QuestText.Owner(save, q.OwnerId)))
+            w.WriteLine("  " + L.F("{0}: {1} ({2})", q.Quest, QuestText.Owner(save, q.OwnerId), q.Active ? L.T("aktiv") : L.T("abgeschlossen")));
+        w.WriteLine();
+        findings.Add(L.P(own.Count, "1 Quest-Eintrag der Mod bleibt im Spielstand; Quest-Daten werden nicht bereinigt.", "{0} Quest-Einträge der Mod bleiben im Spielstand; Quest-Daten werden nicht bereinigt.", own.Count));
     }
 
     // ---------- Sonderinventare ----------

@@ -188,6 +188,7 @@ public partial class MainWindow : Window
             // Karte und Verzeichnis zuerst: Bericht und Vorschau setzen nur Links auf das, was dort steht
             RefreshMap(keepView: sameDb);
             RefreshDirectory();
+            RefreshQuests();
             RefreshResults();
             RefreshOwnership();
             AskAboutOodle();
@@ -309,6 +310,7 @@ public partial class MainWindow : Window
         RefreshSection();
         UpdateMapInfo();
         RefreshDirectory();
+        RefreshQuests();
         if (CurrentItemFilter() == ItemFilter.SelectedMods) RefreshOwnership();
         else RecomputeOwnershipMarks();
     }
@@ -875,6 +877,29 @@ public partial class MainWindow : Window
     ItemFilter CurrentItemFilter() => (ItemFilter)Math.Max(0, ItemFilterBox.SelectedIndex);
 
     /// <summary>Namen der Mods mit Datei, die in der Übersicht zum Entfernen angehakt sind.</summary>
+    /// <summary>Reiter „Quests“ neu aufbauen (nach der Prüfung und wenn sich die Auswahl der Mods ändert).</summary>
+    void RefreshQuests()
+    {
+        if (_save == null) return;
+        var selected = SelectedModNames();
+        QuestTree.ItemsSource = new QuestTreeBuilder(_save, new QuestCatalog(_game, _mods), selected.Contains).Build();
+    }
+
+    void QuestCopyLine_Click(object sender, RoutedEventArgs e)
+    {
+        if (QuestTree.SelectedItem is DirEntry entry) CopyLine(entry.Text, entry.Coords);
+    }
+
+    void QuestTree_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.C && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Control
+            && QuestTree.SelectedItem is DirEntry entry)
+        {
+            CopyLine(entry.Text, entry.Coords);
+            e.Handled = true;
+        }
+    }
+
     HashSet<string> SelectedModNames() =>
         _rows.Where(r => r.Remove && r.Mod is { HasFile: true }).Select(r => r.Mod!.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 

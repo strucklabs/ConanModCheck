@@ -266,6 +266,36 @@
                 </DockPanel>
             </TabItem>
 
+            <TabItem x:Name="QuestTabItem" Header="Quests">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource Hint}" TextWrapping="Wrap"
+                               Text="Quests und Reise des Verbannten je Spieler, geordnet nach Herkunft (Grundspiel, Mods). Nur zur Anzeige: Quest-Daten liegen als Liste innerhalb eines Datenblocks an der Spielerfigur und werden deshalb von der Bereinigung nicht angefasst. Rot hinterlegt: Quests oder Aufgaben, die es weder im Spiel noch in einer geladenen Mod gibt; gelb hinterlegt: Hinweise, etwa auf lange unveränderte Quests. Kästchen gelb: aus Mods, rot: aus angehakten Mods. Strg+C kopiert die Zeile." />
+                    <TreeView x:Name="QuestTree" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingPanel.ScrollUnit="Pixel"
+                              PreviewMouseRightButtonDown="Tree_PreviewMouseRightButtonDown" PreviewKeyDown="QuestTree_PreviewKeyDown">
+                        <TreeView.ItemContainerStyle>
+                            <Style TargetType="TreeViewItem">
+                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                                <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
+                            </Style>
+                        </TreeView.ItemContainerStyle>
+                        <TreeView.ItemTemplate>
+                            <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Rectangle Width="9" Height="9" Margin="0,0,5,0" VerticalAlignment="Center" Fill="{Binding Marker}" />
+                                    <TextBlock Text="{Binding Text}" FontWeight="{Binding Weight}" Padding="3,1" Background="{Binding RowBackground}"
+                                               Style="{StaticResource TreeRowText}" />
+                                </StackPanel>
+                            </HierarchicalDataTemplate>
+                        </TreeView.ItemTemplate>
+                        <TreeView.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Zeile kopieren" Click="QuestCopyLine_Click" InputGestureText="Strg+C" />
+                            </ContextMenu>
+                        </TreeView.ContextMenu>
+                    </TreeView>
+                </DockPanel>
+            </TabItem>
+
             <TabItem x:Name="MapTabItem" Header="Karte">
                 <Grid Margin="8">
                     <Grid.ColumnDefinitions>

@@ -46,6 +46,13 @@ sealed class ModPackage : IDisposable
     /// <summary>Unterhalb dieser Nummer gilt eine Zeile ohne Spieldateien nicht als eigene ID der Mod.</summary>
     public const long SmallId = 1000;
 
+    /// <summary>Namensverzeichnisse der Quest-Tabellen der Mod (Quests und Aufgaben) und ihrer Reise-Tabellen.</summary>
+    public HashSet<string> QuestNames { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public HashSet<string> JourneyNames { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Quest-Tabellen des Spiels, die die Mod ersetzt.</summary>
+    public List<string> OverriddenQuestTables { get; } = [];
+
     /// <summary>Eigene ID → Datentabelle der Mod, aus der sie stammt (Dateiname ohne Endung).</summary>
     public Dictionary<long, string> IdTables { get; } = [];
 
@@ -130,6 +137,13 @@ sealed class ModPackage : IDisposable
             try { package = _container.Read(path); names = ZenPackage.ReadNames(package); }
             catch (Exception) { continue; }
             if (!ZenPackage.IsDataTable(names)) continue;
+            // Quest- und Reise-Tabellen: Zeilen sind Namen, keine Zahlen
+            if (path.Contains("Quest", StringComparison.OrdinalIgnoreCase))
+            {
+                QuestNames.UnionWith(names);
+                if (game != null && game.Contains(path) && path.Contains("/Systems/Quest/", StringComparison.OrdinalIgnoreCase)) OverriddenQuestTables.Add(path);
+            }
+            if (Path.GetFileNameWithoutExtension(path).Contains("Journey", StringComparison.OrdinalIgnoreCase)) JourneyNames.UnionWith(names);
             if (!Path.GetFileName(path).Contains("tag", StringComparison.OrdinalIgnoreCase))
                 foreach (var (id, text) in TableTexts.Read(package, names)) Texts.TryAdd(id, text);
 
@@ -204,6 +218,9 @@ sealed class ModPackage : IDisposable
             foreach (var (key, text) in v.English) main.English.TryAdd(key, text);
             foreach (var f in v.OverriddenGameFiles.Where(f => !main.OverriddenGameFiles.Contains(f))) main.OverriddenGameFiles.Add(f);
             foreach (var f in v.AddedOutsideModFolder.Where(f => !main.AddedOutsideModFolder.Contains(f))) main.AddedOutsideModFolder.Add(f);
+            main.QuestNames.UnionWith(v.QuestNames);
+            main.JourneyNames.UnionWith(v.JourneyNames);
+            foreach (var f in v.OverriddenQuestTables.Where(f => !main.OverriddenQuestTables.Contains(f))) main.OverriddenQuestTables.Add(f);
             foreach (var t in v.Tables.Where(t => !main.Tables.Any(m => m.Path.Equals(t.Path, StringComparison.OrdinalIgnoreCase)))) main.Tables.Add(t);
             v.Dispose();
         }

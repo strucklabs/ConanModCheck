@@ -11,8 +11,8 @@ namespace ConanModCheck.Gui;
 /// </summary>
 public sealed class DirEntry : INotifyPropertyChanged
 {
-    static readonly Brush ModBack = Frozen(Color.FromRgb(0xFF, 0xF4, 0xCC));
-    static readonly Brush SelectedBack = Frozen(Color.FromRgb(0xFD, 0xEC, 0xEC));
+    static readonly Brush HintBack = Frozen(Color.FromRgb(0xFF, 0xF4, 0xCC));
+    static readonly Brush WarnBack = Frozen(Color.FromRgb(0xFD, 0xEC, 0xEC));
 
     Func<IEnumerable<DirEntry>>? _load;
     bool _isExpanded, _isSelected;
@@ -28,8 +28,12 @@ public sealed class DirEntry : INotifyPropertyChanged
     public Brush Marker => Status switch { 2 => MapView.SelectedModBrush, 1 => MapView.ModBrush, _ => Brushes.Transparent };
     // Farbig hinterlegte Zeilen bedeuten im Bericht Hinweise und Warnungen; Mod-Inhalte kennzeichnet
     // hier nur das Kästchen vor der Zeile
-    public bool HasRowBackground => false;
-    public Brush RowBackground => HasRowBackground ? (Status == 2 ? SelectedBack : ModBack) : Brushes.Transparent;
+    public bool HasRowBackground => IsWarning || IsHint;
+    public Brush RowBackground => IsWarning ? WarnBack : IsHint ? HintBack : Brushes.Transparent;
+
+    /// <summary>Warnung (rot hinterlegt) bzw. Hinweis (gelb hinterlegt) – z. B. im Reiter „Quests“.</summary>
+    internal bool IsWarning { get; init; }
+    internal bool IsHint { get; init; }
 
     /// <summary>Stammt die Zeile selbst aus einer Mod (dann farbig hinterlegt) oder nur ihr Inhalt (dann nur das Kästchen)?</summary>
     internal bool OwnStatus { get; init; }

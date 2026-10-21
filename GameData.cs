@@ -24,6 +24,11 @@ sealed class GameData : IDisposable
     /// </summary>
     public HashSet<long> RowIds { get; } = [];
 
+    /// <summary>Namensverzeichnis der Quest-Tabelle, der Aufgabentabellen und der Reise-Tabelle (zum Abgleich gespeicherter Quests).</summary>
+    public HashSet<string> QuestNames { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public HashSet<string> QuestTaskNames { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public HashSet<string> JourneyNames { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>ID → Verweis auf den Namen (aus den Item- und Talent-Tabellen).</summary>
     public Dictionary<long, TextRef> Texts { get; } = [];
 
@@ -68,6 +73,9 @@ sealed class GameData : IDisposable
             try { package = game.Read(path); names = ZenPackage.ReadNames(package); }
             catch (Exception) { continue; }
             if (ZenPackage.IsDataTable(names)) game.RowIds.UnionWith(ZenPackage.NumericNames(names));
+            if (path.EndsWith("/Systems/Quest/QuestsTable.uasset", StringComparison.OrdinalIgnoreCase)) game.QuestNames.UnionWith(names);
+            else if (path.Contains("/Systems/Quest/QuestTables/", StringComparison.OrdinalIgnoreCase)) game.QuestTaskNames.UnionWith(names);
+            else if (path.EndsWith("/Systems/Progression/DT_NewJourney.uasset", StringComparison.OrdinalIgnoreCase)) game.JourneyNames.UnionWith(names);
             if (kind == null) continue;
             var target = kind == "feat" ? game.FeatIds : game.ItemIds;
             target.UnionWith(ZenPackage.NumericNames(names));

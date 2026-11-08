@@ -38,6 +38,8 @@
 
   <ItemGroup>
     <Resource Include="Assets\ConanModCheck.ico" />
+    <!-- Lizenztext gehört neben die EXE -->
+    <None Include="..\LICENSE" Link="LICENSE" CopyToOutputDirectory="Never" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 
   <ItemGroup>

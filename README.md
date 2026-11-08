@@ -105,4 +105,10 @@ dotnet publish ConanModCheck.csproj -c Release -o dist
 dotnet publish Gui/ConanModCheck.Gui.csproj -c Release -o dist
 ```
 
-Das ergibt `dist/ConanModCheck-cli.exe` und `dist/ConanModCheck.exe`. Das Programm-Icon entsteht aus `tools/MakeIcon.cs` (`dotnet run --file tools/MakeIcon.cs`). Beide sind einzelne Dateien, die ohne installiertes .NET laufen. Die Oberfläche (`Gui/`) nutzt die Quelltexte aus dem Hauptordner mit. Alle Texte laufen über `L.T(…)`/`L.F(…)`; die englischen Fassungen stehen in `LangEn.cs` (Schlüssel ist der deutsche Text).
+Das ergibt `dist/ConanModCheck-cli.exe`, `dist/ConanModCheck.exe` und `dist/LICENSE`. Das Programm-Icon entsteht aus `tools/MakeIcon.cs` (`dotnet run --file tools/MakeIcon.cs`). Beide sind einzelne Dateien, die ohne installiertes .NET laufen. Die Oberfläche (`Gui/`) nutzt die Quelltexte aus dem Hauptordner mit. Alle Texte laufen über `L.T(…)`/`L.F(…)`; die englischen Fassungen stehen in `LangEn.cs` (Schlüssel ist der deutsche Text).
+
+## Lizenz
+
+ConanModCheck steht unter der MIT-Lizenz, siehe [`LICENSE`](LICENSE).
+Es ist ein inoffizielles Werkzeug und steht in keiner Verbindung zu Funcom. Conan Exiles ist eine Marke ihrer
+jeweiligen Inhaber. Das Repository enthält weder Spieldateien noch die Oodle-Bibliothek.

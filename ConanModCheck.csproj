@@ -38,4 +38,9 @@
     <EmbeddedResource Remove="Gui\**" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Lizenztext gehört neben die EXE -->
+    <None Update="LICENSE" CopyToOutputDirectory="Never" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+  </ItemGroup>
+
 </Project>
